@@ -1,0 +1,5 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Domain & scoring logic. Must not reference infrastructure (HTTP, EF, LLM) packages. -->
+
+</Project>
