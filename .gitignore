@@ -432,3 +432,6 @@ App_Data/
 *.db
 *.db-shm
 *.db-wal
+
+# Evaluation output (the committed reference run lives in docs/evaluation)
+eval-results/

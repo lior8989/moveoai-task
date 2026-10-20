@@ -3,10 +3,12 @@
     <Project Path="src/WeatherRisk.Api/WeatherRisk.Api.csproj" />
     <Project Path="src/WeatherRisk.Core/WeatherRisk.Core.csproj" />
     <Project Path="src/WeatherRisk.Data/WeatherRisk.Data.csproj" />
+    <Project Path="src/WeatherRisk.Eval/WeatherRisk.Eval.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/WeatherRisk.Api.Tests/WeatherRisk.Api.Tests.csproj" />
     <Project Path="tests/WeatherRisk.Core.Tests/WeatherRisk.Core.Tests.csproj" />
     <Project Path="tests/WeatherRisk.Data.Tests/WeatherRisk.Data.Tests.csproj" />
+    <Project Path="tests/WeatherRisk.Eval.Tests/WeatherRisk.Eval.Tests.csproj" />
   </Folder>
 </Solution>

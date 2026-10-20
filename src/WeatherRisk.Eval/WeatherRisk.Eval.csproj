@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Evaluation runner: a black-box client of the running API (HTTP + JSON only, no project references),
+    so it evaluates the system exactly as an analyst or the chat UI uses it.
+  -->
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="eval-cases.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="WeatherRisk.Eval.Tests" />
+  </ItemGroup>
+
+</Project>

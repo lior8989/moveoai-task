@@ -1,0 +1,560 @@
+{
+  "startedAt": "2026-10-20T19:59:10.3045165+00:00",
+  "baseUrl": "http://localhost:5050/",
+  "modelChecks": [
+    {
+      "id": "M1",
+      "description": "Minneapolis is the Midwest hub most exposed to winter disruption",
+      "result": {
+        "name": "M1",
+        "passed": true,
+        "detail": "minneapolis = minneapolis"
+      }
+    },
+    {
+      "id": "M2",
+      "description": "Miami is more exposed to hurricanes than Houston",
+      "result": {
+        "name": "M2",
+        "passed": true,
+        "detail": "98.6 \u003E 87.6"
+      }
+    },
+    {
+      "id": "M3",
+      "description": "Houston is more exposed to flooding than Miami",
+      "result": {
+        "name": "M3",
+        "passed": true,
+        "detail": "81.4 \u003E 56.4"
+      }
+    },
+    {
+      "id": "M4",
+      "description": "Denver had snow on a plausible share of days last year (1\u201330%)",
+      "result": {
+        "name": "M4",
+        "passed": true,
+        "detail": "4.66 in [1, 30]"
+      }
+    },
+    {
+      "id": "M5",
+      "description": "Dallas is rated High or Very High overall (the brief calls it high)",
+      "result": {
+        "name": "M5",
+        "passed": true,
+        "detail": "High one of [High, VeryHigh]"
+      }
+    },
+    {
+      "id": "M6",
+      "description": "Phoenix is the hub most exposed to extreme heat",
+      "result": {
+        "name": "M6",
+        "passed": true,
+        "detail": "phoenix = phoenix"
+      }
+    },
+    {
+      "id": "M7",
+      "description": "Hurricanes don\u0027t apply to Denver (FEMA not applicable \u2192 0)",
+      "result": {
+        "name": "M7",
+        "passed": true,
+        "detail": "0 = 0"
+      }
+    },
+    {
+      "id": "M8",
+      "description": "Seattle is among the three least exposed hubs overall",
+      "result": {
+        "name": "M8",
+        "passed": true,
+        "detail": "15 \u003E= 13"
+      }
+    },
+    {
+      "id": "M9",
+      "description": "Every hub is scored with High data confidence (complete weather \u002B FEMA data)",
+      "result": {
+        "name": "M9",
+        "passed": true,
+        "detail": "all 15 values = High"
+      }
+    }
+  ],
+  "agentCases": [
+    {
+      "id": "A1",
+      "question": "Which hubs in the Midwest are most exposed to winter disruption?",
+      "purpose": "Brief question 1: regional hazard ranking",
+      "passed": true,
+      "checks": [
+        {
+          "name": "intent",
+          "passed": true,
+          "detail": "Ranking"
+        },
+        {
+          "name": "toolCalled(rank_hubs)",
+          "passed": true,
+          "detail": "args \u2287 { \u0022region\u0022: \u0022Midwest\u0022, \u0022hazard\u0022: \u0022Winter\u0022 }"
+        },
+        {
+          "name": "mentionsTopRanked(region=Midwest\u0026hazard=Winter, 3)",
+          "passed": true,
+          "detail": "mentions Minneapolis, Chicago, Detroit"
+        },
+        {
+          "name": "grounded",
+          "passed": true,
+          "detail": "5 findings, all grounded = True"
+        }
+      ],
+      "answer": "### Midwest Winter\u2011Disruption Exposure (2021\u20112025)\n| Rank | Hub | Winter Score | Rating | Top Drivers |\n|------|-----|--------------|--------|-------------|\n| 1 | **Minneapolis** | **70.8** | High | Winter, SevereStorm |\n| 2 | **Chicago** | **56.9** | High | SevereStorm, Winter |\n| 3 | **Detroit** | **54.1** | High | Winter, SevereStorm |\n| 4 | **Kansas City** | **43.8** | Moderate | Flood, SevereStorm |\n| 5 | **Indianapolis** | **40.0** | Moderate | Flood, Winter |\n\nThe ranking is driven by the Winter hazard score. Minneapolis leads with a 70.8\u202Fscore, reflecting frequent snow/ice events and high FEMA\u2011baseline percentiles. Chicago and Detroit follow, with strong contributions from both Winter and SevereStorm signals. Kansas City and Indianapolis rank lower, their Winter scores moderated by other hazards (Flood, SevereStorm). All scores have **High confidence** based on the 2021\u20112025 observation window.\n",
+      "intent": "Ranking",
+      "tools": [
+        "rank_hubs"
+      ],
+      "model": "Groq/openai/gpt-oss-120b",
+      "latencyMs": 3809.3998,
+      "tokens": 4872,
+      "httpStatus": 200
+    },
+    {
+      "id": "A2",
+      "question": "Compare Miami and Houston in terms of hurricane and flood exposure.",
+      "purpose": "Brief question 2: two-hub, two-hazard comparison",
+      "passed": true,
+      "checks": [
+        {
+          "name": "intent",
+          "passed": true,
+          "detail": "Comparison"
+        },
+        {
+          "name": "toolCalled(compare_hubs)",
+          "passed": true,
+          "detail": "args \u2287 { \u0022hubIds\u0022: [ \u0022miami\u0022, \u0022houston\u0022 ] }"
+        },
+        {
+          "name": "mentionsHubs",
+          "passed": true,
+          "detail": "mentions Miami, Houston"
+        },
+        {
+          "name": "citesApiValue(rows[metric=Hurricane].values[hubId=miami].score)",
+          "passed": true,
+          "detail": "cites 98.6"
+        },
+        {
+          "name": "citesApiValue(rows[metric=Flood].values[hubId=houston].score)",
+          "passed": true,
+          "detail": "cites 81.4"
+        },
+        {
+          "name": "grounded",
+          "passed": true,
+          "detail": "6 findings, all grounded = True"
+        }
+      ],
+      "answer": "**Hurricane exposure** \u2013 Miami scores **98.6 (VeryHigh)**, outpacing Houston\u2019s **87.6 (VeryHigh)**. The gap (\u224811 points) is driven by Miami\u2019s higher *nriHurricane* percentile (98.6 vs 87.6) despite identical observed gust\u2011day counts (0.2\u202Fdays/yr).\\\n**Flood exposure** \u2013 Houston is considerably higher at **81.4 (VeryHigh)** versus Miami\u2019s **56.4 (High)** (\u224825\u2011point spread). Houston\u2019s flood risk is amplified by more heavy\u2011rain days (4.2\u202Fvs\u202F2.2\u202Fdays/yr) and higher riverine (98.4\u202Fvs\u202F96.5\u202Fpercentile) and coastal flooding percentiles (87.3\u202Fvs\u202F55.7).\\\nOverall, Miami\u2019s composite risk (70.9) is slightly above Houston\u2019s (69.3) because its hurricane driver outweighs Houston\u2019s stronger flood driver. Both hubs carry **High** composite ratings, with **High** confidence in the scores.",
+      "intent": "Comparison",
+      "tools": [
+        "compare_hubs"
+      ],
+      "model": "Groq/openai/gpt-oss-120b",
+      "latencyMs": 3580.1935,
+      "tokens": 5454,
+      "httpStatus": 200
+    },
+    {
+      "id": "A3",
+      "question": "What percentage of days in Denver last year had snowfall?",
+      "purpose": "Brief question 3: weather statistic for \u0027last year\u0027",
+      "passed": true,
+      "checks": [
+        {
+          "name": "intent",
+          "passed": true,
+          "detail": "WeatherStatistics"
+        },
+        {
+          "name": "toolCalled(get_weather_statistics)",
+          "passed": true,
+          "detail": "args \u2287 { \u0022hubId\u0022: \u0022denver\u0022 }"
+        },
+        {
+          "name": "citesApiValue(disruptionDays[metric=snowDays].percentOfDays)",
+          "passed": true,
+          "detail": "cites 4.66"
+        },
+        {
+          "name": "grounded",
+          "passed": true,
+          "detail": "1 findings, all grounded = True"
+        }
+      ],
+      "answer": "In 2025 Denver experienced snowfall on **4.66\u202F%** of days (17 snow days out of 365).",
+      "intent": "WeatherStatistics",
+      "tools": [
+        "get_weather_statistics"
+      ],
+      "model": "Groq/openai/gpt-oss-120b",
+      "latencyMs": 2041.0551,
+      "tokens": 4434,
+      "httpStatus": 200
+    },
+    {
+      "id": "A4",
+      "question": "Why is the Dallas hub\u0027s weather disruption risk high?",
+      "purpose": "Brief question 4: explanation from drivers and evidence",
+      "passed": true,
+      "checks": [
+        {
+          "name": "intent",
+          "passed": true,
+          "detail": "HubRisk"
+        },
+        {
+          "name": "toolCalled(get_hub_risk)",
+          "passed": true,
+          "detail": "args \u2287 { \u0022hubId\u0022: \u0022dallas\u0022 }"
+        },
+        {
+          "name": "mentionsApiText(topDrivers[0])",
+          "passed": true,
+          "detail": "mentions Flood"
+        },
+        {
+          "name": "citesApiValue(compositeScore)",
+          "passed": true,
+          "detail": "cites 64.6"
+        },
+        {
+          "name": "grounded",
+          "passed": true,
+          "detail": "7 findings, all grounded = True"
+        }
+      ],
+      "answer": "Dallas scores **64.6** (High) overall, driven primarily by **Flood** (score\u202F78.9, contribution\u202F47.34) and **Severe Storm** (score\u202F63.3, contribution\u202F6.33). The flood driver reflects a very high river\u2011ine flood frequency (97.79\u202Fpercentile) and 3.6\u202Fdays/yr of heavy rain (\u003E50\u202Fmm). Severe\u2011storm risk is amplified by 2.8\u202Fdays/yr of damaging gusts and extreme tornado, hail and strong\u2011wind percentiles (\u224896\u202Fpercentile). Together these two hazards account for over 80\u202F% of the composite score, pushing Dallas into the High rating despite modest winter and hurricane exposure. Heat and hurricane risks are moderate and add only small increments.",
+      "intent": "HubRisk",
+      "tools": [
+        "get_hub_risk"
+      ],
+      "model": "Groq/openai/gpt-oss-120b",
+      "latencyMs": 4157.9832,
+      "tokens": 5975,
+      "httpStatus": 200
+    },
+    {
+      "id": "A5",
+      "question": "How does it compare with Houston on those drivers?",
+      "purpose": "Follow-up: \u0027it\u0027 and \u0027those drivers\u0027 must resolve from conversation memory",
+      "passed": true,
+      "checks": [
+        {
+          "name": "toolCalled(compare_hubs)",
+          "passed": true,
+          "detail": "args \u2287 { \u0022hubIds\u0022: [ \u0022dallas\u0022, \u0022houston\u0022 ] }"
+        },
+        {
+          "name": "mentionsHubs",
+          "passed": true,
+          "detail": "mentions Dallas, Houston"
+        },
+        {
+          "name": "grounded",
+          "passed": true,
+          "detail": "8 findings, all grounded = True"
+        }
+      ],
+      "answer": "Both Dallas and Houston rank **High** (Dallas\u202F64.6, Houston\u202F69.3). Dallas\u2019s risk is driven by **Flood** (78.9) and **Severe\u2011Storm** (63.3) scores, reflecting a 97.8\u202Fpercentile riverine\u2011flood frequency and 2.8\u202Fdays/yr of damaging gusts. Houston\u2019s risk is dominated by **Hurricane** (87.6) and **Flood** (81.4) scores, driven by an 87.6\u202Fpercentile hurricane exposure and 98.4\u202Fpercentile riverine\u2011flood frequency (plus coastal flooding). Together these hazards account for \u003E80\u202F% of each hub\u2019s composite score, explaining why both are high\u2011risk but for different primary drivers.",
+      "intent": "Comparison",
+      "tools": [
+        "compare_hubs"
+      ],
+      "model": "Groq/openai/gpt-oss-120b",
+      "latencyMs": 3748.1483,
+      "tokens": 6307,
+      "httpStatus": 200
+    },
+    {
+      "id": "A6",
+      "question": "Why is the Seattle hub\u0027s weather risk so high?",
+      "purpose": "False premise: Seattle is the least exposed hub \u2014 the agent should say so, not agree",
+      "passed": true,
+      "checks": [
+        {
+          "name": "intent",
+          "passed": true,
+          "detail": "HubRisk"
+        },
+        {
+          "name": "toolCalled(get_hub_risk)",
+          "passed": true,
+          "detail": "args \u2287 { \u0022hubId\u0022: \u0022seattle\u0022 }"
+        },
+        {
+          "name": "mentionsApiText(rating)",
+          "passed": true,
+          "detail": "mentions Low"
+        },
+        {
+          "name": "grounded",
+          "passed": true,
+          "detail": "5 findings, all grounded = True"
+        }
+      ],
+      "answer": "Seattle\u2019s overall weather\u2011risk rating is **Low** (composite score\u202F23.6/100). The model flags **Winter** and **Flood** as the top drivers, but even these hazards remain modest. Winter scores 29.7 (moderate) driven by 8.6\u202Fsnow days\u202F/\u202Fyr and a very high FEMA Winter\u2011weather percentile (95.87), yet the observed winter score (12.9) is far below the baseline (54.9), pulling the contribution down to 18.6 points. Flood risk is low (score\u202F19.4) with only 0.2\u202Fheavy\u2011rain days\u202F/\u202Fyr and riverine flood percentile 11.0. Severe\u2011storm and Heat scores are also low, each contributing ~1\u20132 points. Consequently, Seattle\u2019s composite exposure stays well under the \u201CHigh\u201D threshold.",
+      "intent": "HubRisk",
+      "tools": [
+        "get_hub_risk"
+      ],
+      "model": "Groq/openai/gpt-oss-120b",
+      "latencyMs": 4610.3993,
+      "tokens": 5545,
+      "httpStatus": 200
+    },
+    {
+      "id": "A7",
+      "question": "What\u0027s the capital of France?",
+      "purpose": "Out of scope: decline politely without calling tools",
+      "passed": true,
+      "checks": [
+        {
+          "name": "intent",
+          "passed": true,
+          "detail": "OutOfScope"
+        },
+        {
+          "name": "noToolCalls",
+          "passed": true,
+          "detail": "no tools called"
+        }
+      ],
+      "answer": "I\u2019m sorry, but I can\u2019t help with that. I can assist with weather\u2011risk analysis for your distribution hubs.",
+      "intent": "OutOfScope",
+      "tools": [],
+      "model": "Groq/openai/gpt-oss-20b",
+      "latencyMs": 4824.0343,
+      "tokens": 4004,
+      "httpStatus": 200
+    },
+    {
+      "id": "A8",
+      "question": "How is the risk score calculated?",
+      "purpose": "Methodology: explain the deterministic model from the model-description tool",
+      "passed": true,
+      "checks": [
+        {
+          "name": "intent",
+          "passed": true,
+          "detail": "Methodology"
+        },
+        {
+          "name": "toolCalled(describe_risk_model)",
+          "passed": true,
+          "detail": "describe_risk_model"
+        },
+        {
+          "name": "mentionsText",
+          "passed": true,
+          "detail": "found \u0027FEMA\u0027"
+        },
+        {
+          "name": "mentionsText",
+          "passed": true,
+          "detail": "found \u0027worst\u0027"
+        }
+      ],
+      "answer": "The composite score is a deterministic, rule\u2011based index that blends two signals for each hazard:\n1. **Observed disruption days** \u2013 daily weather data from Open\u2011Meteo over 2021\u20112025 (e.g., snow days, hard\u2011freeze days, high\u2011gust days, heavy rain, extreme heat). Each hazard\u2019s observed component is scaled to 0\u2011100 based on the hub\u2019s own annual averages.\n2. **FEMA National Risk Index (NRI)** \u2013 the county\u2011level annualized hazard frequency percentile (e.g., Winter Weather, Hurricane, Flood, Severe Storm, Heat Wave). If FEMA data is not applicable for a hazard, that component is 0.\n\nFor each hazard, the final hazard score = 0.5\u202F\u00D7\u202Fworst\u2011hazard blend\u202F\u002B\u202F0.5\u202F\u00D7\u202Fweighted average of the other hazards, where the worst hazard is the one with the highest observed or FEMA signal. The composite is then 50\u202F% of the worst hazard score plus 50\u202F% of the weighted average of all hazards, ensuring an extreme event dominates the overall exposure.\n\nRatings are mapped to score bands: Low\u202F\u003C\u202F25, Moderate\u202F\u003C\u202F50, High\u202F\u003C\u202F75, VeryHigh\u202F\u2265\u202F75.\n\n**Key assumptions**: weights, thresholds, and caps are expert\u2011defined and not calibrated to actual disruption data; the index ranks relative exposure, not absolute closure risk.\n\n**Uncertainty**: data covers 2021\u20112025; county\u2011level FEMA data may not match the exact hub location; weights are uncalibrated.\n",
+      "intent": "Methodology",
+      "tools": [
+        "describe_risk_model"
+      ],
+      "model": "Groq/openai/gpt-oss-20b",
+      "latencyMs": 3480.1778,
+      "tokens": 5108,
+      "httpStatus": 200
+    },
+    {
+      "id": "A9",
+      "question": "Which three hubs should we prioritize for resilience investment?",
+      "purpose": "Overall prioritization: composite ranking, top 3",
+      "passed": true,
+      "checks": [
+        {
+          "name": "intent",
+          "passed": true,
+          "detail": "Ranking"
+        },
+        {
+          "name": "toolCalled(rank_hubs)",
+          "passed": true,
+          "detail": "rank_hubs"
+        },
+        {
+          "name": "mentionsTopRanked(top=3, 3)",
+          "passed": true,
+          "detail": "mentions New Orleans, Miami, Houston"
+        },
+        {
+          "name": "grounded",
+          "passed": true,
+          "detail": "3 findings, all grounded = True"
+        }
+      ],
+      "answer": "Based on the composite weather\u2011disruption exposure scores (2021\u20112025), the three hubs with the highest risk are:\n1. **New\u202FOrleans, LA** \u2013 Composite score **71.2** (High). Top drivers: Hurricane and Flood.\n2. **Miami, FL** \u2013 Composite score **70.9** (High). Top drivers: Hurricane and Flood.\n3. **Houston, TX** \u2013 Composite score **69.3** (High). Top drivers: Hurricane and Flood.\nAll three score in the High band and are driven primarily by extreme hurricane activity and flood risk, which dominate their exposure profiles.",
+      "intent": "Ranking",
+      "tools": [
+        "rank_hubs"
+      ],
+      "model": "Groq/openai/gpt-oss-120b",
+      "latencyMs": 2609.3179,
+      "tokens": 4463,
+      "httpStatus": 200
+    },
+    {
+      "id": "A10",
+      "question": "What is the flood risk of the Boston hub?",
+      "purpose": "Unknown hub: must not invent data for a hub that doesn\u0027t exist",
+      "passed": true,
+      "checks": [
+        {
+          "name": "mentionsText",
+          "passed": true,
+          "detail": "found \u0027not in\u0027"
+        },
+        {
+          "name": "grounded",
+          "passed": true,
+          "detail": "0 findings, all grounded = True"
+        }
+      ],
+      "answer": "The Boston hub is not in our current list of distribution hubs, so we cannot provide a flood risk score for it. If you need flood risk for one of the listed hubs (e.g., New\u202FYork or any other), let me know and I\u2019ll retrieve the data.",
+      "intent": "OutOfScope",
+      "tools": [
+        "list_hubs"
+      ],
+      "model": "Groq/openai/gpt-oss-20b",
+      "latencyMs": 3554.3031,
+      "tokens": 4549,
+      "httpStatus": 200
+    },
+    {
+      "id": "A11",
+      "question": "Which hub is most exposed to extreme heat?",
+      "purpose": "Single-hazard ranking across all regions",
+      "passed": true,
+      "checks": [
+        {
+          "name": "toolCalled(rank_hubs)",
+          "passed": true,
+          "detail": "args \u2287 { \u0022hazard\u0022: \u0022Heat\u0022 }"
+        },
+        {
+          "name": "mentionsTopRanked(hazard=Heat, 1)",
+          "passed": true,
+          "detail": "mentions Phoenix"
+        },
+        {
+          "name": "grounded",
+          "passed": true,
+          "detail": "1 findings, all grounded = True"
+        }
+      ],
+      "answer": "**Phoenix Hub** is the most exposed to extreme heat, with a Heat\u2011specific score of **99** (VeryHigh rating). The heat driver dominates its risk profile, and the model assigns a high confidence to this assessment.",
+      "intent": "Ranking",
+      "tools": [
+        "rank_hubs"
+      ],
+      "model": "Groq/openai/gpt-oss-120b",
+      "latencyMs": 2893.7168,
+      "tokens": 4971,
+      "httpStatus": 200
+    },
+    {
+      "id": "A12",
+      "question": "Is the Denver hub exposed to hurricanes?",
+      "purpose": "Not-applicable hazard: should explain hurricanes don\u0027t apply (score 0)",
+      "passed": true,
+      "checks": [
+        {
+          "name": "toolCalled(get_hub_risk)",
+          "passed": true,
+          "detail": "args \u2287 { \u0022hubId\u0022: \u0022denver\u0022 }"
+        },
+        {
+          "name": "mentionsText",
+          "passed": true,
+          "detail": "found \u0027not applicable\u0027"
+        },
+        {
+          "name": "grounded",
+          "passed": true,
+          "detail": "2 findings, all grounded = True"
+        }
+      ],
+      "answer": "Denver\u2019s hurricane exposure is negligible. The composite hurricane score is **0** (rating\u202FLow), with no contribution to the overall risk. The only observed signal is 1 day per year of tropical\u2011storm\u2011force gusts, and FEMA\u2019s National Risk Index lists the hurricane hazard as not applicable for Denver\u2019s county.\n\n**Key drivers:**\n- Hurricane score\u202F0, baseline\u202F0, contribution\u202F0.\n- 1\u202Fday/yr of tropical\u2011storm gusts.\n- FEMA NRI marks hurricane as not applicable.\n\nThus, Denver is not exposed to hurricanes and should not be prioritized for hurricane\u2011specific resilience.",
+      "intent": "HubRisk",
+      "tools": [
+        "get_hub_risk"
+      ],
+      "model": "Groq/openai/gpt-oss-20b",
+      "latencyMs": 5876.3618,
+      "tokens": 5299,
+      "httpStatus": 200
+    },
+    {
+      "id": "A13",
+      "question": "How many heavy-rain days did the Houston hub have in 2024?",
+      "purpose": "Explicit period: tool arguments must carry the date range; count must match",
+      "passed": true,
+      "checks": [
+        {
+          "name": "toolCalled(get_weather_statistics)",
+          "passed": true,
+          "detail": "args \u2287 { \u0022hubId\u0022: \u0022houston\u0022, \u0022from\u0022: \u00222024-01-01\u0022, \u0022to\u0022: \u00222024-12-31\u0022 }"
+        },
+        {
+          "name": "citesApiValue(disruptionDays[metric=heavyRainDays].days)",
+          "passed": true,
+          "detail": "cites 4"
+        },
+        {
+          "name": "grounded",
+          "passed": true,
+          "detail": "1 findings, all grounded = True"
+        }
+      ],
+      "answer": "In 2024, the Houston hub experienced **4 heavy\u2011rain days** (precipitation \u2265\u202F50\u202Fmm).",
+      "intent": "WeatherStatistics",
+      "tools": [
+        "get_weather_statistics"
+      ],
+      "model": "Groq/openai/gpt-oss-120b",
+      "latencyMs": 5141.1983,
+      "tokens": 4434,
+      "httpStatus": 200
+    }
+  ],
+  "summary": {
+    "modelChecksPassed": 9,
+    "modelChecksTotal": 9,
+    "agentCasesPassed": 13,
+    "agentCasesTotal": 13,
+    "agentChecksPassed": 47,
+    "agentChecksTotal": 47,
+    "averageLatencyMs": 3871.2530153846155,
+    "p95LatencyMs": 5876.3618,
+    "totalTokens": 65415,
+    "modelsUsed": {
+      "Groq/openai/gpt-oss-120b": 9,
+      "Groq/openai/gpt-oss-20b": 4
+    },
+    "llmFallbacks": 5,
+    "allPassed": true
+  }
+}

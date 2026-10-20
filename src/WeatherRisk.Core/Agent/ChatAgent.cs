@@ -141,11 +141,12 @@ public sealed class ChatAgent
             {
                 if (call.Name == AgentPrompt.SubmitAnswerTool)
                 {
-                    if (AnswerValidator.TryParse(call.ArgumentsJson, out AgentAnswer? answer, out string? error))
+                    if (AnswerValidator.TryParse(call.ArgumentsJson, out AgentAnswer? parsed, out string? error))
                     {
-                        GroundingReport grounding = AnswerValidator.Ground(answer!, evidence);
+                        AgentAnswer answer = parsed! with { Answer = AnswerCleaner.RemoveDuplicatedSections(parsed.Answer) };
+                        GroundingReport grounding = AnswerValidator.Ground(answer, evidence);
                         await _conversations.AppendAsync(
-                            conversationId, new ConversationTurn(message, answer!.Answer, _time.GetUtcNow()), cancellationToken);
+                            conversationId, new ConversationTurn(message, answer.Answer, _time.GetUtcNow()), cancellationToken);
                         return new ChatResult(
                             conversationId, answer, grounding, trace, completion.Provider, completion.Model, step,
                             promptTokens, completionTokens, Stopwatch.GetElapsedTime(started));
