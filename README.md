@@ -30,6 +30,12 @@ Then open:
 SQLite, created and migrated automatically on first start at `src/WeatherRisk.Api/App_Data/weatherrisk.db`
 (15 hubs seeded). No setup needed. To reset, stop the app and delete the `App_Data` folder.
 
+### External data
+On startup the app downloads 5 years of daily weather (Open-Meteo) and FEMA hazard baselines for all hubs in
+the background (~1 minute the first time — Open-Meteo's free per-minute quota; then cached for 30 days).
+Internet access is needed for that first fetch; afterwards the app works from the cache. Progress and outcome:
+`/api/system/health` and `/api/system/metrics` → `dependencies`.
+
 For schema changes (developers):
 ```powershell
 dotnet tool restore
@@ -47,6 +53,10 @@ The browser opens Swagger.
 | `ConnectionStrings` | `WeatherRisk` | `Data Source=App_Data/weatherrisk.db` | SQLite file (relative paths resolve under the Api project) |
 | `Monitoring` | `WindowSeconds` | 60 | Window for "requests in window" metric |
 | | `LatencySampleSize` | 512 | Recent requests per endpoint used for avg/p95/max latency |
+| `HubData` | `LookbackYears` | 5 | Observed-weather window in full calendar years |
+| | `WeatherCacheDays` / `BaselineCacheDays` | 30 / 30 | Cache time-to-live before refetching |
+| | `MaxConcurrentFetches` | 4 | Parallel Open-Meteo requests during refresh |
+| | `WarmUpOnStartup` | true | Fill the cache for all hubs in the background at startup |
 | `RateLimiting:Global` | `PermitLimit` / `WindowSeconds` / `SegmentsPerWindow` | 120 / 60 / 6 | Per-client sliding window for `/api/*` (except `/api/system/*`) |
 
 ## Testing

@@ -65,11 +65,11 @@ namespace WeatherRisk.Data.Persistence.Migrations
 
                     b.Property<double?>("CoastalFlooding")
                         .HasColumnType("REAL")
-                        .HasComment("NRI Coastal Flooding risk score: national percentile 0-100 (null = not rated).");
+                        .HasComment("NRI Coastal Flooding annualized frequency as national percentile among US counties, 0-100 (null = not applicable).");
 
                     b.Property<double?>("ColdWave")
                         .HasColumnType("REAL")
-                        .HasComment("NRI Cold Wave risk score: national percentile 0-100 (null = not rated).");
+                        .HasComment("NRI Cold Wave annualized frequency as national percentile among US counties, 0-100 (null = not applicable).");
 
                     b.Property<long>("FetchedAt")
                         .HasColumnType("INTEGER")
@@ -77,41 +77,41 @@ namespace WeatherRisk.Data.Persistence.Migrations
 
                     b.Property<double?>("Hail")
                         .HasColumnType("REAL")
-                        .HasComment("NRI Hail risk score: national percentile 0-100 (null = not rated).");
+                        .HasComment("NRI Hail annualized frequency as national percentile among US counties, 0-100 (null = not applicable).");
 
                     b.Property<double?>("HeatWave")
                         .HasColumnType("REAL")
-                        .HasComment("NRI Heat Wave risk score: national percentile 0-100 (null = not rated).");
+                        .HasComment("NRI Heat Wave annualized frequency as national percentile among US counties, 0-100 (null = not applicable).");
 
                     b.Property<double?>("Hurricane")
                         .HasColumnType("REAL")
-                        .HasComment("NRI Hurricane risk score: national percentile 0-100 (null = not rated).");
+                        .HasComment("NRI Hurricane annualized frequency as national percentile among US counties, 0-100 (null = not applicable).");
 
                     b.Property<double?>("IceStorm")
                         .HasColumnType("REAL")
-                        .HasComment("NRI Ice Storm risk score: national percentile 0-100 (null = not rated).");
+                        .HasComment("NRI Ice Storm annualized frequency as national percentile among US counties, 0-100 (null = not applicable).");
 
                     b.Property<double?>("RiverineFlooding")
                         .HasColumnType("REAL")
-                        .HasComment("NRI Riverine Flooding risk score: national percentile 0-100 (null = not rated).");
+                        .HasComment("NRI Inland (riverine) Flooding annualized frequency as national percentile among US counties, 0-100 (null = not applicable).");
 
                     b.Property<double?>("StrongWind")
                         .HasColumnType("REAL")
-                        .HasComment("NRI Strong Wind risk score: national percentile 0-100 (null = not rated).");
+                        .HasComment("NRI Strong Wind annualized frequency as national percentile among US counties, 0-100 (null = not applicable).");
 
                     b.Property<double?>("Tornado")
                         .HasColumnType("REAL")
-                        .HasComment("NRI Tornado risk score: national percentile 0-100 (null = not rated).");
+                        .HasComment("NRI Tornado annualized frequency as national percentile among US counties, 0-100 (null = not applicable).");
 
                     b.Property<double?>("WinterWeather")
                         .HasColumnType("REAL")
-                        .HasComment("NRI Winter Weather risk score: national percentile 0-100 (null = not rated).");
+                        .HasComment("NRI Winter Weather annualized frequency as national percentile among US counties, 0-100 (null = not applicable).");
 
                     b.HasKey("CountyFips");
 
                     b.ToTable("HazardBaselines", null, t =>
                         {
-                            t.HasComment("Cached FEMA National Risk Index hazard scores per county.");
+                            t.HasComment("Cached FEMA National Risk Index baselines per county: hazard frequency percentiles vs all US counties.");
                         });
                 });
 

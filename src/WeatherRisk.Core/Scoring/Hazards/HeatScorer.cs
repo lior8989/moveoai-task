@@ -24,7 +24,7 @@ public sealed class HeatScorer : IHazardScorer
     /// <inheritdoc />
     public HazardScore Score(WeatherSummary? weather, HazardBaseline? baseline) =>
         HazardMath.ScoreSingleMetric(
-            Hazard, _settings, weather, static w => w.ExtremeHeatDays,
+            Hazard, _settings, weather, baseline is not null, static w => w.ExtremeHeatDays,
             "extremeHeatDaysPerYear", _metricDescription,
             ("Heat Wave", baseline?.HeatWave));
 }

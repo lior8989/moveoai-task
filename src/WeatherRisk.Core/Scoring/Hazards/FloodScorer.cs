@@ -28,7 +28,7 @@ public sealed class FloodScorer : IHazardScorer
     /// </remarks>
     public HazardScore Score(WeatherSummary? weather, HazardBaseline? baseline) =>
         HazardMath.ScoreSingleMetric(
-            Hazard, _settings, weather, static w => w.HeavyRainDays,
+            Hazard, _settings, weather, baseline is not null, static w => w.HeavyRainDays,
             "heavyRainDaysPerYear", _metricDescription,
             ("Riverine Flooding", baseline?.RiverineFlooding),
             ("Coastal Flooding", baseline?.CoastalFlooding));

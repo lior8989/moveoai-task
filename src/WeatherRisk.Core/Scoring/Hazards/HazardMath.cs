@@ -52,6 +52,20 @@ internal static class HazardMath
     /// <returns>Rounded value (midpoints away from zero).</returns>
     public static double Round(double value, int decimals = 1) => Math.Round(value, decimals, MidpointRounding.AwayFromZero);
 
+    /// <summary>
+    /// Score for a hazard FEMA rates as not applicable to the county (baseline present, all its components null) —
+    /// e.g. hurricanes in Denver. Scores 0: weather proxies must not override FEMA's applicability assessment.
+    /// </summary>
+    /// <param name="hazard">Hazard scored.</param>
+    /// <param name="factors">Evidence gathered so far (kept for transparency).</param>
+    /// <returns>A zero score with a "not applicable" factor.</returns>
+    public static HazardScore NotApplicable(HazardType hazard, List<ScoreFactor> factors)
+    {
+        factors.Add(new ScoreFactor("notApplicable", 0, "flag",
+            "FEMA National Risk Index rates this hazard as not applicable to the county"));
+        return new HazardScore(hazard, 0, RiskRating.Low, null, 0, factors);
+    }
+
     /// <summary>Builds the final <see cref="HazardScore"/> from optional observed/baseline scores and evidence.</summary>
     /// <param name="hazard">Hazard scored.</param>
     /// <param name="observed">Observed score or null.</param>
@@ -75,10 +89,12 @@ internal static class HazardMath
     /// <summary>
     /// Scoring recipe for hazards measured by one disruption-day metric and one or more NRI components:
     /// observed = normalize(days/yr, cap); baseline = mean of available NRI components; score = blend.
+    /// If the baseline exists but rates every component not applicable, the hazard scores 0.
     /// </summary>
     /// <param name="hazard">Hazard scored.</param>
     /// <param name="settings">Cap and weights.</param>
     /// <param name="weather">Weather summary or null.</param>
+    /// <param name="baselineAvailable">Whether a baseline exists for the county (distinguishes "unavailable" from "not applicable").</param>
     /// <param name="dayCount">Selects the disruption-day count from the summary.</param>
     /// <param name="metricName">Evidence name, e.g. <c>heavyRainDaysPerYear</c>.</param>
     /// <param name="metricDescription">Evidence description including the threshold.</param>
@@ -88,6 +104,7 @@ internal static class HazardMath
         HazardType hazard,
         SingleMetricScoringSettings settings,
         WeatherSummary? weather,
+        bool baselineAvailable,
         Func<WeatherSummary, int> dayCount,
         string metricName,
         string metricDescription,
@@ -116,15 +133,20 @@ internal static class HazardMath
             factors.Add(NriFactor(name, v));
         }
 
+        if (baselineAvailable && count == 0)
+        {
+            return NotApplicable(hazard, factors);
+        }
+
         double? baseline = count == 0 ? null : sum / count;
         return Build(hazard, observed, baseline, settings.ObservedWeight, factors);
     }
 
     /// <summary>Creates evidence for one FEMA NRI component.</summary>
     /// <param name="name">NRI hazard name, e.g. <c>Hurricane</c>.</param>
-    /// <param name="value">NRI risk score 0–100.</param>
+    /// <param name="value">National frequency percentile 0–100.</param>
     /// <returns>The factor.</returns>
     public static ScoreFactor NriFactor(string name, double value) =>
-        new($"nri{name.Replace(" ", string.Empty, StringComparison.Ordinal)}", Round(value, 2), "NRI score",
-            $"FEMA National Risk Index — {name} risk (national percentile, 0–100)");
+        new($"nri{name.Replace(" ", string.Empty, StringComparison.Ordinal)}", Round(value, 2), "percentile",
+            $"FEMA National Risk Index — {name} annualized frequency, national percentile among US counties (0–100)");
 }

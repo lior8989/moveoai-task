@@ -24,10 +24,14 @@ public sealed class ScoringSettings
     /// <summary>Winter scoring parameters.</summary>
     public WinterScoringSettings Winter { get; init; } = new();
 
-    /// <summary>Hurricane scoring parameters. Observed weight is low: a few years of daily data rarely contain a landfall.</summary>
+    /// <summary>
+    /// Hurricane scoring parameters. Observed weight is 0: real data showed daily gusts ≥ 90 km/h also come from
+    /// nor'easters (New York) and downslope winds (Denver), so they can't identify hurricanes. The gust-day rate
+    /// is still reported as evidence and is used alone only if the FEMA baseline is unavailable.
+    /// </summary>
     public SingleMetricScoringSettings Hurricane { get; init; } = new()
     {
-        CompositeWeight = 0.20, ObservedWeight = 0.25, DaysPerYearCap = 3,
+        CompositeWeight = 0.20, ObservedWeight = 0.0, DaysPerYearCap = 3,
     };
 
     /// <summary>Flood scoring parameters.</summary>

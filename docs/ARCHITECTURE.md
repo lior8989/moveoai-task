@@ -47,8 +47,10 @@ src/
     Program.cs                   DI registration + middleware pipeline
     Endpoints/                   Endpoint groups (one static class per resource)
     Contracts/                   Request/response records (never EF entities)
-    Observability/               Request metrics middleware + collector, health checks
+    Observability/               Request + dependency metrics, health checks
     RateLimiting/                Rate-limiter configuration
+    Persistence/                 SQLite path resolution, schema describer
+    Background/                  Hosted services (data warm-up)
   WeatherRisk.Core/              Domain + scoring logic (no infrastructure dependencies)
     Domain/                      Hub, Region, HazardType
     Weather/                     DailyWeather, WeatherSummary, thresholds, statistics calculator
@@ -63,6 +65,10 @@ src/
       Repositories/              Repository implementations (internal)
       Seed/HubCatalog.cs         The 15 hubs
       Migrations/                Generated EF migrations
+    External/
+      OpenMeteo/                 Typed client + response DTOs (source-generated JSON)
+      Fema/                      Typed client, DTOs, percentile calculator
+      HubDataProvider.cs         Cache-first provider with fallbacks
 tests/
   WeatherRisk.Api.Tests/         Endpoint tests (WebApplicationFactory, temp SQLite file) + Api unit tests
   WeatherRisk.Core.Tests/        Golden-value unit tests for statistics, scorers, engine, ranking
@@ -160,10 +166,39 @@ erDiagram
 | Source | Used for | Auth |
 |---|---|---|
 | Open-Meteo Historical Weather API | Daily snowfall, precipitation, wind, temperature per hub | None (free) |
-| FEMA National Risk Index | County-level hazard risk (hurricane, riverine/coastal flood, winter weather, heat…) | None (free) |
+| FEMA National Risk Index | County-level hazard frequency (winter, ice, cold, hurricane, inland/coastal flood, tornado, hail, wind, heat) | None (free) |
 | Groq (primary) / Gemini (fallback) | LLM for tool routing and explanations | Free-tier API key (user-secrets) |
 
-*Details: TBD (task 5).*
+### Open-Meteo (`OpenMeteoClient`)
+`GET archive-api.open-meteo.com/v1/archive` with `daily=snowfall_sum,precipitation_sum,wind_gusts_10m_max,
+temperature_2m_max,temperature_2m_min&timezone=auto` for the hub's coordinates over the window
+(last 5 full calendar years, e.g. 2021–2025). Units are already cm / mm / km/h / °C. One request per hub
+(~1,826 rows). Response arrays are validated for alignment; coordinates are formatted culture-invariant.
+
+### FEMA NRI (`FemaNriClient`)
+Public ArcGIS feature service `National_Risk_Index_Counties` (NRI release "December 2025" at time of writing).
+**Design change found during integration:** NRI's *Risk Index Score* scales with a county's population and
+property value, so every large metro county scores ~95–100 on nearly every hazard (Miami-Dade = 99.5 for
+*cold wave*) — useless for comparing metro hubs. We therefore use **annualized frequency (`*_AFREQ`)** —
+how often the hazard occurs, independent of what is built there — and convert it to a **national percentile
+among all 3,232 counties** (mid-rank, per hazard). One paged download (2 × 2,000 rows) serves all hubs and is
+cached for 30 days. Null frequency = hazard not applicable to the county (kept null).
+FEMA renamed "Riverine Flooding" to **Inland Flooding (`IFLD`)**; it maps to `HazardBaseline.RiverineFlooding`.
+
+### Cache-first provider (`HubDataProvider`, implements Core's `IHubDataProvider`)
+```
+for each hub: cache covers window and younger than TTL? ── yes ──► Cached (no network)
+                                    │ no
+                                    ▼
+              fetch live (≤ 4 in parallel; DB writes stay sequential — DbContext isn't thread-safe)
+                 │ success                        │ failure (after retries / timeout / open circuit)
+                 ▼                                ▼
+     atomic replace in SQLite → Fresh     old cache? ── yes ──► Stale (+ fallback counted & logged)
+                                                    └─ no ───► Unavailable
+```
+Every result carries its `DataFreshness` and retrieval time, which feeds the confidence/notes shown to users.
+A background **warm-up** (`DataWarmupService`) fills the cache at startup so the first question is answered
+from SQLite (cold fetch of 15 hubs ≈ 50 s due to Open-Meteo's minute quota; cached ≈ 80 ms).
 
 ## 6. Risk scoring model (deterministic)
 
@@ -176,21 +211,43 @@ so the parameters below are documented expert assumptions, all overridable via c
 | Signal | Source | Why |
 |---|---|---|
 | **Observed** | Open-Meteo daily history, last 5 full years | What actually happened recently at the hub's coordinates |
-| **Baseline** | FEMA National Risk Index, hub's county (0–100 national percentile) | Decades of hazard history; captures rare events (landfalls, tornadoes) that 5 years can miss |
+| **Baseline** | FEMA National Risk Index, hub's county: annualized hazard **frequency** as a national percentile (0–100) | Decades of hazard history; captures rare events (landfalls, tornadoes) that 5 years can miss |
 
 `hazardScore = w_obs × observed + (1 − w_obs) × baseline` — if one signal is missing, the other is used alone.
+If FEMA rates a hazard **not applicable** to the county (baseline present, all its components null — e.g.
+hurricanes in Denver), the hazard scores **0** with a `notApplicable` evidence factor: weather proxies never
+override FEMA's applicability.
 
 ### Hazards
 | Hazard | Observed: disruption day (threshold) | Cap (days/yr → 100) | NRI baseline (mean of available) | w_obs |
 |---|---|---|---|---|
 | Winter | 60% snow day (snowfall ≥ 1 cm) + 40% hard freeze (min ≤ −12 °C) | 40 snow / 30 freeze | Winter Weather, Ice Storm, Cold Wave | 0.60 |
-| Hurricane | Gust ≥ 90 km/h (tropical-storm force) | 3 | Hurricane | 0.25 |
+| Hurricane | Gust ≥ 90 km/h (tropical-storm force) — evidence only | 3 | Hurricane | **0.00** |
 | Flood | Precipitation ≥ 50 mm | 6 | Riverine Flooding, Coastal Flooding | 0.50 |
 | Severe storm | Gust ≥ 75 km/h | 12 | Tornado, Hail, Strong Wind | 0.40 |
 | Heat | Max temperature ≥ 38 °C | 45 | Heat Wave | 0.60 |
 
 Observed score = `min(100, daysPerYear / cap × 100)`. `w_obs` is low where daily weather is a weak proxy
-(hurricanes, tornadoes/hail) and high where it measures the hazard directly (snow, heat).
+(tornadoes/hail) and high where it measures the hazard directly (snow, heat). **Hurricane `w_obs` was
+lowered from 0.25 to 0 after validating on real data:** daily ≥ 90 km/h gusts also come from nor'easters
+(New York) and downslope winds (Denver), so the proxy ranked New York above Miami. Gust days remain visible
+as evidence and are used only if the FEMA baseline is unavailable.
+
+### Real-data sanity check (snapshot 2026-10-20, window 2021–2025)
+| Hub | Composite | Winter | Hurricane | Flood | Severe storm | Heat | Top drivers |
+|---|---|---|---|---|---|---|---|
+| New Orleans | 71.2 High | 7 | 95 | 76 | 29 | 36 | Hurricane, Flood |
+| Miami | 70.9 High | 10 | 99 | 56 | 30 | 26 | Hurricane, Flood |
+| Houston | 69.3 High | 14 | 88 | 81 | 36 | 43 | Hurricane, Flood |
+| Phoenix | 68.5 High | 2 | 34 | 53 | 25 | 99 | Heat, Flood |
+| Dallas | 64.6 High | 21 | 34 | 79 | 63 | 64 | Flood, Severe storm |
+| Minneapolis | 55.9 High | 71 | 0 | 45 | 51 | 27 | Winter, Severe storm |
+| Chicago | 49.4 Moderate | 57 | 21 | 35 | 59 | 14 | Severe storm, Winter |
+| Denver | 41.4 Moderate | 56 | 0 | 21 | 35 | 8 | Winter, Severe storm |
+| Seattle | 23.6 Low | 30 | 0 | 19 | 18 | 17 | Winter, Flood |
+
+Midwest winter ranking: Minneapolis 71 > Chicago 57 > Detroit 54 > Kansas City 44 > Indianapolis 40.
+Denver 2025: 17 snow days of 365 (4.7%).
 
 ### Composite
 ```
@@ -258,8 +315,30 @@ Built-in ASP.NET Core rate limiter, **sliding window per client IP** (default 12
 load, which is exactly when they're needed. Rejections: `429` + `Retry-After` + ProblemDetails. Settings in
 `appsettings.json` → `RateLimiting`, validated at startup. *(Task 7 adds a stricter policy for `/api/chat`.)*
 
+### Dependency metrics — in `GET /api/system/metrics` → `dependencies`
+Per external dependency: `calls`, `succeeded`, `failed`, `fallbacksServed`, `avgLatencyMs`, `p95LatencyMs`,
+`lastCallSucceeded`, `lastSuccessAt`, `lastFailureAt`, `lastError`.
+- **Calls/latency** come from `DependencyMetricsHandler`, the *outermost* handler on each typed `HttpClient`
+  (so one logical call includes its retries). It lives in the Api; Data stays free of monitoring code.
+- **Fallbacks** are reported by the data layer through Core's `IDependencyMetrics` (implemented by the same
+  `DependencyMetricsCollector` singleton) — Dependency Inversion, no Data → Api reference.
+
+### Dependency health — `GET /api/system/health`
+`database` (EF Core check) plus one **passive** check per external dependency (`open-meteo`, `fema-nri`):
+Healthy when never called or the last call succeeded; **Degraded** when the last call failed (cached data is
+served, so the API still works — HTTP 200). Passive = no extra calls to free APIs and instant health responses.
+
 ### Resilience & fallbacks
-*TBD (task 5: HTTP retry/timeout/circuit breaker + cache fallback; task 7: LLM provider fallback).*
+| Layer | Open-Meteo | FEMA NRI |
+|---|---|---|
+| Attempt timeout | 15 s | 30 s |
+| Retries (exponential + jitter, honours `Retry-After`) | 4 (5 → 10 → 20 → 40 s) | 2 (2 → 4 s) |
+| Total timeout | 150 s | 90 s |
+| Circuit breaker | standard (sampling 60 s) | standard (sampling 120 s) |
+| Fallback | stale cached rows → `Stale`; none → `Unavailable` | stale cached baseline → `Stale`; none → `Unavailable` |
+
+Open-Meteo's long backoff exists because its free quota is per minute and a 5-year request counts as many
+calls — found when a cold fetch of all 15 hubs got 429s for the last 3. *(Task 7 adds the LLM provider fallback.)*
 
 ## 9. Evaluation
 *TBD (task 9).*
@@ -288,6 +367,11 @@ load, which is exactly when they're needed. Rejections: `429` + `Retry-After` + 
 | "Latest snapshot" by auto-increment id | Insertion order is chronological; integer index is cheaper and more reliable than timestamp ordering in SQLite. |
 | Schema endpoint generated from the EF model | Documentation that cannot drift from the real schema. |
 | Migrations applied at startup | Zero manual setup for reviewers; acceptable for a single-instance app. |
+| NRI frequency percentiles instead of NRI risk scores | Risk scores saturate for all metro counties (driven by population/property); frequency measures the hazard a facility is exposed to. |
+| Percentiles computed locally from all counties | One cached download; exact mid-rank percentiles; no arbitrary per-hazard caps. |
+| Passive dependency health checks | Instant, quota-free; reflect real recent outcomes. |
+| Metrics handler in Api, fallback reporting via Core interface | Data never references Api; monitoring stays in one place. |
+| Background warm-up at startup | Cold fetch ≈ 50 s (quota-bound); users shouldn't pay it on their first question. |
 | Rate limit partitioned by client IP | Simple and fair for a demo; assumes no reverse proxy (would need forwarded headers). |
 
 ## 11. Assumptions & uncertainty
@@ -298,7 +382,10 @@ load, which is exactly when they're needed. Rejections: `429` + `Retry-After` + 
   blend). They produce a sensible *relative* ranking but are not a prediction of disruption days or cost.
 - Daily max gust is a coarse proxy for tornadoes/hail and hurricanes, hence the heavy NRI weighting there.
 - Point weather at hub coordinates stands in for the hub's operating area (roads/suppliers may differ).
-- FEMA NRI is county-level and reflects national percentiles of *risk* (includes exposure/vulnerability of the
-  county, not of our facility).
+- FEMA NRI is county-level; we use hazard *frequency* percentiles (how often, relative to US counties), not
+  severity or our facility's vulnerability. Frequency units differ per hazard (events vs event-days per year),
+  which percentiles normalize away.
+- "Not applicable" in NRI (null frequency) is treated as zero exposure for that hazard.
+- Open-Meteo values are reanalysis/model-based estimates at a grid point near the hub, not station readings.
 - 5 years of observations is short for rare hazards; the baseline compensates but uncertainty remains.
 - Hub locations are city centres of real US cities standing in for the company's (unknown) hub sites.

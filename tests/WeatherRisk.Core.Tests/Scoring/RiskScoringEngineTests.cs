@@ -96,12 +96,12 @@ public sealed class RiskScoringEngineTests
             TestData.Baseline(70, 50, 60, hurricane: 90, riverine: 40, coastal: 80, tornado: 90, hail: 60,
                 strongWind: 30, heatWave: 20));
 
-        // Hazards (see HazardScorerTests): Winter 46.8, Hurricane 75.8, Flood 55, Storm 56, Heat 38.
-        // Avg = .25×46.8 + .2×75.8 + .2×55 + .2×56 + .15×38 = 54.76.  Composite = .5×75.8 + .5×54.76 = 65.28 → 65.3.
+        // Hazards (see HazardScorerTests): Winter 46.8, Hurricane 90 (baseline only), Flood 55, Storm 56, Heat 38.
+        // Avg = .25×46.8 + .2×90 + .2×55 + .2×56 + .15×38 = 57.6.  Composite = .5×90 + .5×57.6 = 73.8.
         HubRiskScore score = engine.Score(inputs);
 
-        Assert.Equal([46.8, 75.8, 55.0, 56.0, 38.0], score.Hazards.Select(h => h.Detail.Score));
-        Assert.Equal(65.3, score.CompositeScore);
+        Assert.Equal([46.8, 90.0, 55.0, 56.0, 38.0], score.Hazards.Select(h => h.Detail.Score));
+        Assert.Equal(73.8, score.CompositeScore);
         Assert.Equal(HazardType.Hurricane, score.TopDrivers[0]);
         Assert.Equal(ScoreConfidence.High, score.Confidence);
         Assert.Empty(score.Notes);
