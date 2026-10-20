@@ -2,4 +2,9 @@
 
   <!-- Domain & scoring logic. Must not reference infrastructure (HTTP, EF, LLM) packages. -->
 
+  <ItemGroup>
+    <!-- Lets unit tests verify internal scoring math (HazardMath) directly. -->
+    <InternalsVisibleTo Include="WeatherRisk.Core.Tests" />
+  </ItemGroup>
+
 </Project>
