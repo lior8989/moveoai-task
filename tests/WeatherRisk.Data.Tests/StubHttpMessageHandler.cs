@@ -10,6 +10,9 @@ internal sealed class StubHttpMessageHandler : HttpMessageHandler
 
     public List<HttpRequestMessage> Requests { get; } = [];
 
+    /// <summary>Request bodies, captured at send time (callers may dispose the request afterwards).</summary>
+    public List<string?> RequestBodies { get; } = [];
+
     public StubHttpMessageHandler RespondJson(string json, HttpStatusCode status = HttpStatusCode.OK)
     {
         _responses.Enqueue(_ => new HttpResponseMessage(status)
@@ -27,14 +30,16 @@ internal sealed class StubHttpMessageHandler : HttpMessageHandler
 
     public HttpClient CreateClient(Uri baseAddress) => new(this) { BaseAddress = baseAddress };
 
-    protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+    protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested(); // Like a real network handler.
         Requests.Add(request);
+        RequestBodies.Add(request.Content is null ? null : await request.Content.ReadAsStringAsync(cancellationToken));
         if (_responses.Count == 0)
         {
             throw new InvalidOperationException($"No stubbed response left for {request.RequestUri}.");
         }
 
-        return Task.FromResult(_responses.Dequeue()(request));
+        return _responses.Dequeue()(request);
     }
 }

@@ -1,6 +1,11 @@
-<Project Sdk="Microsoft.NET.Sdk.Web">
+﻿<Project Sdk="Microsoft.NET.Sdk.Web">
 
   <!-- Composition root: HTTP endpoints, middleware, DI wiring, static chat UI. -->
+
+  <PropertyGroup>
+    <!-- Local secrets (LLM API keys) live outside the repo: dotnet user-secrets set "Llm:Providers:Groq:ApiKey" <key> -->
+    <UserSecretsId>84bf2121-5fd9-4c4c-9d0b-1e79ab83256f</UserSecretsId>
+  </PropertyGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\WeatherRisk.Core\WeatherRisk.Core.csproj" />

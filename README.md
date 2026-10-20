@@ -9,7 +9,17 @@ scoring model, and an LLM for conversation.
 
 ## Prerequisites
 - .NET 10 SDK (`dotnet --list-sdks` should show 10.0.x)
-- A free Groq API key (https://console.groq.com) — needed for the chat agent only (task 7)
+- A free Groq API key (https://console.groq.com) — needed for the chat agent only
+
+## LLM setup (once)
+Store the key in .NET user-secrets (kept in your user profile, **outside the repo**; loaded in Development):
+```powershell
+dotnet user-secrets set "Llm:Providers:Groq:ApiKey" "<your-groq-key>" --project src/WeatherRisk.Api
+# Optional extra fallback provider (free key at https://aistudio.google.com):
+dotnet user-secrets set "Llm:Providers:Gemini:ApiKey" "<your-gemini-key>" --project src/WeatherRisk.Api
+```
+Outside Development use environment variables instead, e.g. `Llm__Providers__Groq__ApiKey`.
+Without any key the app still runs; only `/api/chat` returns 503.
 
 ## Running
 
@@ -30,6 +40,17 @@ Then open:
 | http://localhost:5050/api/system/health | Health check |
 | http://localhost:5050/api/system/metrics | Request metrics (counts, failures, rate-limited, latency) |
 | http://localhost:5050/api/system/schema | Database schema (tables, columns, keys, comments) |
+
+### Ask the agent
+In Swagger (`POST /api/chat`) or from PowerShell:
+```powershell
+$r = Invoke-RestMethod http://localhost:5050/api/chat -Method Post -ContentType application/json `
+      -Body '{"message":"Why is the Dallas hub''s weather disruption risk high?"}'
+$r.answer; $r.findings; $r.toolCalls
+# Follow-up in the same conversation:
+Invoke-RestMethod http://localhost:5050/api/chat -Method Post -ContentType application/json `
+      -Body (@{ message = "How does it compare with Houston?"; conversationId = $r.conversationId } | ConvertTo-Json)
+```
 
 ### Database
 SQLite, created and migrated automatically on first start at `src/WeatherRisk.Api/App_Data/weatherrisk.db`
@@ -64,6 +85,10 @@ The browser opens Swagger.
 | | `WarmUpOnStartup` | true | Fill the cache for all hubs in the background at startup |
 | `Scoring` *(optional)* | e.g. `WorstHazardBlend`, `Heat:CompositeWeight`, `Winter:SnowDaysPerYearCap` | see `/api/risk/model` | Override any risk-model parameter; validated at startup |
 | `WeatherThresholds` *(optional)* | e.g. `SnowDayCm`, `HeavyRainMm`, `ExtremeHeatC` | 1 / 50 / 38 | Disruption-day thresholds |
+| `Llm` | `ProviderOrder`, `Providers:{name}:BaseUrl / Models / ReasoningEffort / MaxTokens` | Groq (gpt-oss-120b → gpt-oss-20b → qwen3.8-27b), Gemini | LLM fallback chain; keys via user-secrets |
+| `Agent` | `MaxSteps` / `HistoryTurns` / `TimeoutSeconds` / `MaxMessageLength` | 8 / 6 / 60 / 2000 | Agent loop limits |
+| `Conversations` | `MaxConversations` / `MaxTurns` / `IdleMinutes` | 1000 / 10 / 60 | In-memory conversation memory |
+| `RateLimiting:Chat` | `PermitLimit` / `WindowSeconds` | 10 / 60 | Per-client limit for `/api/chat` |
 | `RateLimiting:Global` | `PermitLimit` / `WindowSeconds` / `SegmentsPerWindow` | 120 / 60 / 6 | Per-client sliding window for `/api/*` (except `/api/system/*`) |
 
 ## Testing

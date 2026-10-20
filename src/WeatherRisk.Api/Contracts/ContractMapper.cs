@@ -81,6 +81,20 @@ public static class ContractMapper
             result.RetrievedAt);
     }
 
+    /// <summary>Maps the model description.</summary>
+    /// <param name="model">Core description.</param>
+    /// <returns>Contract.</returns>
+    public static RiskModelResponse ToResponse(this RiskModelDescription model) => new(
+        model.Summary,
+        model.WindowFrom,
+        model.WindowTo,
+        model.WorstHazardBlend,
+        model.MinimumCoverage,
+        model.Hazards.Select(h => new HazardModelResponse(h.Hazard, h.CompositeWeight, h.ObservedWeight, h.ObservedSignal, h.BaselineSignal)).ToList(),
+        model.RatingBands.Select(b => new RatingBandResponse(b.Rating, b.FromInclusive, b.ToExclusive)).ToList(),
+        model.DataSources,
+        model.Assumptions);
+
     private static HubRiskResponse ToResponse(HubRiskScore score, HubDataProvenance provenance) => new(
         score.Hub.ToResponse(),
         score.CompositeScore,

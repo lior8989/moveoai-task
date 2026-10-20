@@ -60,6 +60,7 @@ HubEndpoints.GetRiskAsync → HubRiskService.AssessAsync
 | `GET /api/risk/rankings?region=&hazard=&top=` | Rank by composite or hazard | "Which Midwest hubs are most exposed to winter?" |
 | `GET /api/risk/compare?hubs=a,b&hazards=` | Side-by-side rows + full breakdowns | "Compare Miami and Houston for hurricane and flood" |
 | `GET /api/risk/model` | Live description of the model (weights, thresholds, bands, assumptions) | "How is the score calculated?" |
+| `POST /api/chat` | Conversational agent (§7): any of the above in natural language, with follow-ups | All of them |
 | `GET /api/system/health · metrics · schema` | Operations (task 2/4/5) | — |
 
 Errors are RFC 7807 ProblemDetails: unknown hub → 404 (`unknownHubs` extension), invalid enum/date/period/top → 400.
@@ -74,9 +75,10 @@ global.json                      SDK pin + Microsoft Testing Platform runner
 src/
   WeatherRisk.Api/               Composition root (ASP.NET Core Minimal API)
     Program.cs                   DI registration + middleware pipeline
-    Endpoints/                   Endpoint groups: System, Hubs, Risk (one static class per resource)
-    Contracts/                   Response records per area (System, Hubs, Risk) + ContractMapper
-    Risk/                        Risk-model DI registration, model describer
+    Endpoints/                   Endpoint groups: System, Hubs, Risk, Chat (one static class per resource)
+    Contracts/                   Records per area (System, Hubs, Risk, Chat) + mappers
+    Risk/                        Risk-model DI registration
+    Agent/                       Agent DI registration, in-memory conversation store
     Errors/                      DomainExceptionHandler (domain exceptions → 404/400 ProblemDetails)
     Observability/               Request + dependency metrics, health checks
     RateLimiting/                Rate-limiter configuration
@@ -89,7 +91,10 @@ src/
       Hazards/                   One scorer per hazard + shared HazardMath
     Ranking/                     HubRanker (rank + compare)
     Abstractions/                Ports implemented by Data: repositories, data sources, data provider
-    Application/                 HubRiskService (use cases), result records, domain exceptions
+    Application/                 HubRiskService (use cases), RiskModelDescriber, result records, domain exceptions
+    Agent/                       ChatAgent loop, AgentAnswer contract, AnswerValidator, prompt, memory port
+      Llm/                       ILlmClient port (provider-neutral messages, tools, completions)
+      Tools/                     AgentTool<TArgs> base + 6 tools over HubRiskService
   WeatherRisk.Data/              EF Core/SQLite persistence + external API clients
     Persistence/
       Entities/                  EF entities (one per table)
@@ -101,6 +106,7 @@ src/
       OpenMeteo/                 Typed client + response DTOs (source-generated JSON)
       Fema/                      Typed client, DTOs, percentile calculator
       HubDataProvider.cs         Cache-first provider with fallbacks
+      Llm/                       OpenAI-compatible client, fallback chain, settings, wire DTOs
 tests/
   WeatherRisk.Api.Tests/         Endpoint tests (WebApplicationFactory, temp SQLite file) + Api unit tests
   WeatherRisk.Core.Tests/        Golden-value unit tests for statistics, scorers, engine, ranking
@@ -311,7 +317,68 @@ With the company's historical closure/delay records, weights and caps could be f
 ML.NET) so the index predicts real disruption days or cost — the model structure stays the same.
 
 ## 7. Agent design & structured output
-*TBD (task 7).*
+
+**Division of labour:** the LLM decides *what to look up* and *how to explain it*; every number comes from
+deterministic tools; our code validates the answer before it reaches the analyst.
+
+```
+POST /api/chat {message, conversationId?}
+  └─ ChatAgent (Core/Agent) ── bounded loop (≤ 8 steps, 60 s deadline) ─────────────────────────────┐
+       [system prompt + last 6 Q&A + question] → ILlmClient (tool_choice = required)               │
+          ├─ tool calls → IAgentTool (6 tools over HubRiskService) → JSON results back to the LLM  │
+          └─ submit_answer(args) → AnswerValidator: 1) strict schema parse  2) grounding check ────┘
+  ← ChatResponse: answer, intent, findings[verified], keyFactors, assumptions, uncertainty,
+                  followUpQuestions, verification, toolCalls trace, llm {provider, model, steps, tokens, ms}
+```
+
+### Tools (`Core/Agent/Tools`)
+| Tool | Wraps | Used for |
+|---|---|---|
+| `list_hubs(region?)` | `GetHubsAsync` | Resolve names to ids |
+| `rank_hubs(region?, hazard?, top?)` | `RankAsync` | "Which hubs are most exposed…" |
+| `compare_hubs(hubIds[], hazards?)` | `CompareAsync` (+ compact evidence for compared hazards) | "Compare Miami and Houston…" |
+| `get_hub_risk(hubId)` | `AssessAsync` (full breakdown + evidence) | "Why is Dallas high?" |
+| `get_weather_statistics(hubId, from?, to?)` | `GetWeatherStatisticsAsync` | "% of days with snowfall…" |
+| `describe_risk_model()` | `RiskModelDescriber` | Methodology |
+
+`AgentTool<TArgs>` (Template Method) generates each tool's JSON schema from its argument record, parses
+arguments strictly, and turns domain errors (unknown hub, period outside window) into `{"error": …}` messages
+so the model can self-correct instead of failing the conversation.
+
+### Structured output — how the JSON schema is enforced
+1. **Single source of truth:** `AgentAnswer` (C# record) → `JsonSchemaExporter` → schema of the
+   `submit_answer` tool (all fields required, `additionalProperties: false`, enum values, descriptions).
+2. **Forced:** every request uses `tool_choice: "required"`, so the model must end with a tool call; prose
+   replies get a reminder.
+3. **Validated by our code:** strict `System.Text.Json` options (`UnmappedMemberHandling.Disallow`,
+   `RespectRequiredConstructorParameters`, `RespectNullableAnnotations`, no numeric enums) + semantic limits
+   (non-empty answer/uncertainty, ≤ 3 follow-ups). Violations are sent back to the model (≤ 2 repairs).
+4. **Grounding check:** every number in `findings` must appear in a tool result from this turn (±0.05 or
+   integer rounding) and every hub must have been returned by a tool. Unsupported findings are returned with
+   `verified: false` and a note — the LLM can't pass off invented scores as facts.
+
+### LLM access (`Data/External/Llm`)
+- **`OpenAiCompatibleChatClient`** — our own ~150-line client for `POST /chat/completions`; one class serves
+  Groq, Gemini's OpenAI endpoint and Ollama. Source-generated JSON (snake_case), key sent per request, never logged.
+- **`FallbackLlmClient`** — Chain of Responsibility over (provider × model):
+  **Groq gpt-oss-120b → Groq gpt-oss-20b → Groq qwen3.8-27b → Gemini (if keyed)**. Each failure is logged and
+  counted as a fallback (`/api/system/metrics`); all failing → `503` with a hint to the deterministic endpoints.
+- Per-provider named `HttpClient` with metrics handler + resilience (30 s attempt, 1 quick retry, **no long
+  Retry-After waits** — the next model is faster than waiting out a quota).
+- Groq's `tool_use_failed` (malformed tool call by the model) is retried once on the same model.
+
+### Findings from live testing (and what was changed)
+| Observation | Change |
+|---|---|
+| gpt-oss with `reasoning_effort: low` called a non-existent tool `json` instead of `submit_answer` (0/3 in a probe) | `medium` (3/3); prompt names the tool explicitly; same-model retry on `tool_use_failed` |
+| Groq free tier: 8,000 tokens/min **per model**; a question costs ~4–6k → bursts got 429 | Three Groq models in the chain (separate quotas); `max_tokens` 2048→1500 (counted against quota); chat rate limit 10/min |
+| Comparisons explained differences with invented geography ("low-lying area") | `compare_hubs` returns compact evidence; prompt requires causes from evidence fields |
+| Malformed chat body returned 500 in Development | `BadHttpRequestException` → 400 ProblemDetails |
+
+### Conversation memory
+`IConversationStore` (Core) → `InMemoryConversationStore` (Api): last 10 turns per conversation, 60 min idle
+expiry, max 1,000 conversations (own size-limited `MemoryCache`). Only Q&A text is kept — tool data is
+re-fetched cheaply — which keeps prompts small. Swap for SQLite/Redis to survive restarts or scale out.
 
 ## 8. Monitoring, rate limiting & resilience
 
@@ -373,7 +440,10 @@ served, so the API still works — HTTP 200). Passive = no extra calls to free A
 | Fallback | stale cached rows → `Stale`; none → `Unavailable` | stale cached baseline → `Stale`; none → `Unavailable` |
 
 Open-Meteo's long backoff exists because its free quota is per minute and a 5-year request counts as many
-calls — found when a cold fetch of all 15 hubs got 429s for the last 3. *(Task 7 adds the LLM provider fallback.)*
+calls — found when a cold fetch of all 15 hubs got 429s for the last 3.
+
+**LLM:** fallback chain across models/providers (§7), per-provider metrics (`llm-groq`, …) and passive health
+checks; `/api/chat` has its own stricter rate limit (default 10/min per client) on top of the global one.
 
 ## 9. Evaluation
 *TBD (task 9).*
@@ -412,6 +482,12 @@ calls — found when a cold fetch of all 15 hubs got 429s for the last 3. *(Task
 | Options pattern for scoring settings, plain objects in Core | Binds from the final configuration (a test caught that reading config during registration missed later providers); validated at startup; Core stays dependency-free. |
 | Enums serialized as names | Readable for analysts and the LLM; Swagger lists allowed values; invalid values → 400. |
 | No result cache over scoring | Measured ~10 ms per warm hub assessment; caching would add invalidation for no gain. |
+| Own OpenAI-compatible client instead of an SDK | The protocol is plain JSON; owning it gives one client for all providers, our resilience/metrics handlers, stub-HTTP tests, and code that is easy to explain. |
+| Final answer as a forced tool call (`submit_answer`) | Tool arguments are JSON-schema-defined on every provider; `tool_choice: required` guarantees a structured ending. |
+| Schema generated from the C# record | Schema and validation can't drift; one place to change the contract. |
+| Grounding check on cited numbers | Cheap, deterministic guard against the LLM's main failure mode (plausible invented numbers). |
+| Model × provider fallback chain | Free tiers rate-limit per model; spreading load over models keeps the chat available. |
+| In-memory conversation store behind an interface | Zero setup for a single-instance demo; persistence is a one-class swap. |
 | Rate limit partitioned by client IP | Simple and fair for a demo; assumes no reverse proxy (would need forwarded headers). |
 
 ## 11. Assumptions & uncertainty
@@ -429,3 +505,8 @@ calls — found when a cold fetch of all 15 hubs got 429s for the last 3. *(Task
 - Open-Meteo values are reanalysis/model-based estimates at a grid point near the hub, not station readings.
 - 5 years of observations is short for rare hazards; the baseline compensates but uncertainty remains.
 - Hub locations are city centres of real US cities standing in for the company's (unknown) hub sites.
+- **LLM limits:** grounding verifies cited *numbers*, not every sentence — prose can still over-interpret
+  (mitigated by prompt rules and evidence-rich tool results). The fallback model (gpt-oss-20b) follows
+  formatting rules less strictly (e.g. sometimes repeats follow-ups inside the answer text).
+- Groq free tier ≈ 8,000 tokens/min per model ≈ 1–2 questions/min per model; the chain spreads bursts across
+  three models. Conversations are in memory and lost on restart.

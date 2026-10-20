@@ -45,7 +45,7 @@ public static class RiskServiceCollectionExtensions
         services.AddSingleton<IHazardScorer, SevereStormScorer>();
         services.AddSingleton<IHazardScorer, HeatScorer>();
         services.AddSingleton<RiskScoringEngine>();
-        services.AddSingleton<RiskModelDescriber>();
+        services.AddSingleton<RiskModelDescriber>(); // Core.Application describer (shared with the agent tool).
 
         // Scoped: depends on the scoped data provider / repositories.
         services.AddScoped<HubRiskService>();
