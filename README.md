@@ -21,6 +21,11 @@ Then open:
 | URL | What |
 |---|---|
 | http://localhost:5050/swagger | Swagger UI — try every endpoint live |
+| http://localhost:5050/api/risk/rankings?region=Midwest&hazard=Winter | Midwest hubs most exposed to winter |
+| http://localhost:5050/api/risk/compare?hubs=miami,houston&hazards=Hurricane&hazards=Flood | Miami vs Houston, hurricane and flood |
+| http://localhost:5050/api/hubs/denver/weather | Denver last full year: snow days, % of days, … |
+| http://localhost:5050/api/hubs/dallas/risk | Dallas risk breakdown: drivers, contributions, evidence |
+| http://localhost:5050/api/risk/model | How scores are computed |
 | http://localhost:5050/openapi/v1.json | OpenAPI document |
 | http://localhost:5050/api/system/health | Health check |
 | http://localhost:5050/api/system/metrics | Request metrics (counts, failures, rate-limited, latency) |
@@ -57,6 +62,8 @@ The browser opens Swagger.
 | | `WeatherCacheDays` / `BaselineCacheDays` | 30 / 30 | Cache time-to-live before refetching |
 | | `MaxConcurrentFetches` | 4 | Parallel Open-Meteo requests during refresh |
 | | `WarmUpOnStartup` | true | Fill the cache for all hubs in the background at startup |
+| `Scoring` *(optional)* | e.g. `WorstHazardBlend`, `Heat:CompositeWeight`, `Winter:SnowDaysPerYearCap` | see `/api/risk/model` | Override any risk-model parameter; validated at startup |
+| `WeatherThresholds` *(optional)* | e.g. `SnowDayCm`, `HeavyRainMm`, `ExtremeHeatC` | 1 / 50 / 38 | Disruption-day thresholds |
 | `RateLimiting:Global` | `PermitLimit` / `WindowSeconds` / `SegmentsPerWindow` | 120 / 60 / 6 | Per-client sliding window for `/api/*` (except `/api/system/*`) |
 
 ## Testing

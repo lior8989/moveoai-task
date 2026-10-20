@@ -6,8 +6,9 @@ namespace WeatherRisk.Api.Observability;
 /// Measures every <c>/api</c> request (status + duration) and records it in <see cref="RequestMetricsCollector"/>.
 /// </summary>
 /// <remarks>
-/// Placed after routing (to know the matched route template) and before rate limiting
-/// (so 429 rejections are counted). Allocation-light: <see cref="Stopwatch.GetTimestamp"/> timing.
+/// Placed after routing (to know the matched route template) and outside the exception handler and rate
+/// limiter, so it records the final status of every request — including handled exceptions (404/400/500)
+/// and 429 rejections. Allocation-light: <see cref="Stopwatch.GetTimestamp"/> timing.
 /// </remarks>
 public sealed class RequestMetricsMiddleware
 {
@@ -35,6 +36,9 @@ public sealed class RequestMetricsMiddleware
             return;
         }
 
+        // Resolve the label first: the exception handler (inside this middleware) clears the endpoint when it
+        // handles an exception, so reading it afterwards would mislabel failed requests as "(unmatched)".
+        string label = ResolveEndpointLabel(context);
         long start = Stopwatch.GetTimestamp();
         bool failed = false;
         try
@@ -43,14 +47,14 @@ public sealed class RequestMetricsMiddleware
         }
         catch
         {
-            // The exception handler upstream turns this into a 500; record it as such.
+            // Only reached if the exception escaped the exception handler (e.g. response already started).
             failed = true;
             throw;
         }
         finally
         {
             int status = failed ? StatusCodes.Status500InternalServerError : context.Response.StatusCode;
-            _collector.Record(ResolveEndpointLabel(context), status, Stopwatch.GetElapsedTime(start));
+            _collector.Record(label, status, Stopwatch.GetElapsedTime(start));
         }
     }
 
