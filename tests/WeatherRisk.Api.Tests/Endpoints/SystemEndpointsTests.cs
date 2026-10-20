@@ -131,13 +131,13 @@ public sealed class SystemEndpointsTests : IClassFixture<WeatherRiskApiFactory>
     }
 
     [Fact]
-    public async Task Root_RedirectsToSwagger()
+    public async Task Root_ServesChatUiDirectly()
     {
         HttpClient client = _factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
 
         HttpResponseMessage response = await client.GetAsync("/", Ct);
 
-        Assert.Equal(HttpStatusCode.Redirect, response.StatusCode);
-        Assert.Equal("/swagger", response.Headers.Location?.OriginalString);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal("text/html", response.Content.Headers.ContentType?.MediaType);
     }
 }

@@ -1,0 +1,207 @@
+/* Weather Risk Intelligence — chat UI. Plain CSS, no framework; light/dark via prefers-color-scheme. */
+:root {
+  --bg: #f4f6fa;
+  --surface: #ffffff;
+  --text: #1c2330;
+  --muted: #5c6678;
+  --border: #dde2ea;
+  --accent: #1f5fbf;
+  --accent-text: #ffffff;
+  --user: #e7effc;
+  --ok: #1d7f45;
+  --warn: #a86400;
+  --bad: #b3261e;
+  --radius: 12px;
+  --shadow: 0 1px 3px rgb(16 24 40 / 8%);
+  color-scheme: light dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #12161d;
+    --surface: #1b212b;
+    --text: #e6e9ef;
+    --muted: #9aa4b5;
+    --border: #2c3442;
+    --accent: #6ea2f5;
+    --accent-text: #0d1117;
+    --user: #233350;
+    --ok: #4cc27f;
+    --warn: #f0a83a;
+    --bad: #f2786d;
+  }
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font: 15px/1.55 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+
+/* ---------- header ---------- */
+.topbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  padding: .75rem 1.25rem;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+.brand { display: flex; align-items: center; gap: .75rem; }
+.logo { font-size: 1.8rem; }
+h1 { font-size: 1.15rem; margin: 0; }
+.subtitle { margin: 0; color: var(--muted); font-size: .85rem; }
+.actions { display: flex; align-items: center; gap: .5rem; }
+
+.health {
+  font-size: .8rem;
+  padding: .2rem .6rem;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  color: var(--muted);
+}
+.health::before { content: "●"; margin-right: .35rem; }
+.health.ok::before { color: var(--ok); }
+.health.warn::before { color: var(--warn); }
+.health.bad::before { color: var(--bad); }
+
+button, .text-button { font: inherit; cursor: pointer; }
+.icon-button, .text-button {
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: .35rem .6rem;
+  color: var(--text);
+  text-decoration: none;
+}
+.icon-button[aria-pressed="true"] { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
+.icon-button.listening { animation: pulse 1.2s infinite; }
+@keyframes pulse { 50% { box-shadow: 0 0 0 6px rgb(179 38 30 / 25%); } }
+
+/* ---------- chat ---------- */
+.chat {
+  flex: 1;
+  width: min(900px, 100%);
+  margin: 0 auto;
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+.log { display: flex; flex-direction: column; gap: .9rem; }
+
+.message {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: .85rem 1rem;
+  box-shadow: var(--shadow);
+  max-width: 100%;
+  position: relative;
+}
+.message.user { background: var(--user); align-self: flex-end; max-width: 80%; }
+.message.error { border-color: var(--bad); }
+.message p { margin: .35rem 0; }
+.message h3, .message h4, .message h5 { margin: .8rem 0 .35rem; font-size: .95rem; }
+.message ul, .message ol { margin: .35rem 0; padding-left: 1.3rem; }
+.message code { background: var(--bg); padding: 0 .25rem; border-radius: 4px; font-size: .9em; }
+.message pre { background: var(--bg); padding: .5rem; border-radius: 8px; overflow-x: auto; font-size: .8rem; margin: .3rem 0; }
+
+.typing span { animation: blink 1.4s infinite both; }
+.typing span:nth-child(2) { animation-delay: .2s; }
+.typing span:nth-child(3) { animation-delay: .4s; }
+@keyframes blink { 0%, 80%, 100% { opacity: 0; } 40% { opacity: 1; } }
+
+.findings { width: 100%; border-collapse: collapse; margin: .6rem 0; font-size: .88rem; }
+.findings caption { text-align: left; font-weight: 600; padding-bottom: .25rem; }
+.findings th, .findings td { border-bottom: 1px solid var(--border); padding: .3rem .4rem; text-align: left; }
+.findings .num { text-align: right; font-variant-numeric: tabular-nums; }
+.verified { color: var(--ok); white-space: nowrap; }
+.unverified { color: var(--warn); white-space: nowrap; }
+
+.chips { display: flex; flex-wrap: wrap; gap: .4rem; margin: .3rem 0; }
+.chip {
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+  border-radius: 999px;
+  padding: .25rem .7rem;
+  font-size: .85rem;
+}
+button.chip:hover { border-color: var(--accent); color: var(--accent); }
+
+.uncertainty {
+  border-left: 3px solid var(--warn);
+  padding: .3rem .6rem;
+  background: var(--bg);
+  border-radius: 0 8px 8px 0;
+  font-size: .9rem;
+}
+details { margin: .4rem 0; font-size: .9rem; }
+summary { cursor: pointer; color: var(--accent); }
+.audit .tools { padding-left: 1.2rem; }
+.muted { color: var(--muted); }
+.badge.intent {
+  position: absolute;
+  top: .55rem;
+  right: .7rem;
+  font-size: .7rem;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: .04em;
+}
+
+.starter h2 { font-size: .85rem; color: var(--muted); margin: 0 0 .3rem; font-weight: 600; }
+
+/* ---------- composer ---------- */
+.composer {
+  position: sticky;
+  bottom: .75rem;
+  display: flex;
+  gap: .5rem;
+  align-items: flex-end;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: .5rem;
+  box-shadow: var(--shadow);
+}
+.composer textarea {
+  flex: 1;
+  resize: vertical;
+  min-height: 2.4rem;
+  max-height: 10rem;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  padding: .45rem;
+}
+.send-button {
+  background: var(--accent);
+  color: var(--accent-text);
+  border: none;
+  border-radius: 8px;
+  padding: .55rem 1.1rem;
+  font-weight: 600;
+}
+.send-button:disabled, .composer textarea:disabled { opacity: .55; cursor: progress; }
+.footnote { color: var(--muted); font-size: .78rem; text-align: center; margin: 0; }
+
+@media (max-width: 600px) {
+  .subtitle { display: none; }
+  .message.user { max-width: 92%; }
+}
