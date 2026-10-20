@@ -23,6 +23,36 @@ dotnet run --project src/WeatherRisk.Api --launch-profile http
 | Task plan and status | [docs/PLAN.md](docs/PLAN.md) |
 | Engineering standards the AI agent followed | [CLAUDE.md](CLAUDE.md) · [.claude/skills](.claude/skills) |
 
+## For reviewers: running from a fresh clone
+Verified on a fresh clone in an empty folder: builds with 0 warnings, all 370 tests pass, and every page
+and endpoint works; only the chat needs a key.
+
+| You need | Notes |
+|---|---|
+| **.NET 10 SDK** | Required (`dotnet --list-sdks` → 10.0.x). .NET 8/9 alone won't build. |
+| **A free Groq API key** | Only for the chat (`/api/chat`). Create one at https://console.groq.com (~2 min), then run the `user-secrets` command from the Quick start. Without a key, the UI, Swagger and all REST endpoints work and the chat replies with a 503 that names the exact command to run. |
+| **Internet on the first run** | ~1 minute background download of weather (Open-Meteo) and FEMA data; then it's cached in SQLite. Networks blocking `archive-api.open-meteo.com`, `services.arcgis.com` or `api.groq.com` will break those parts. |
+
+Not needed: Visual Studio (any terminal works; the `.slnx` needs a recent Visual Studio or Rider), Node.js
+(only for the optional UI tests and transcript export), or any database install.
+
+**Troubleshooting**
+- **Chat says "No LLM provider is configured"**: the key isn't loaded. User-secrets are read only in the
+  Development environment, which `dotnet run --launch-profile http` (or plain `dotnet run`) uses. In any other
+  environment, set the variable `Llm__Providers__Groq__ApiKey` instead.
+- **Chat says "temporarily unavailable" (503)**: the free tier allows ~1–2 questions per minute per model (three
+  Groq models are tried in turn). Wait a minute, or add a free Gemini key as an extra fallback (command below).
+- **Port 5050 already in use**: `dotnet run --project src/WeatherRisk.Api --launch-profile http --urls http://localhost:5070`.
+- **First answers show Medium confidence or "Stale/Unavailable" data**: the first-run download was still in
+  progress or hit Open-Meteo's per-minute quota. It recovers automatically on the next request
+  (`/api/system/health` shows the status).
+- **🎤 voice button missing or silent**: speech recognition works in Chrome and Edge; allow microphone access.
+  Firefox hides the button.
+- **A Groq model is retired in the future**: edit `Llm:Providers:Groq:Models` in `src/WeatherRisk.Api/appsettings.json`
+  (no code change needed).
+- **macOS/Linux**: cross-platform .NET, but only tested on Windows; the `dotnet` commands are the same.
+- **Start over**: stop the app and delete `src/WeatherRisk.Api/App_Data` (the database is rebuilt on the next start).
+
 ## Prerequisites
 - .NET 10 SDK (`dotnet --list-sdks` should show 10.0.x)
 - A free Groq API key (https://console.groq.com) — needed for the chat agent only
