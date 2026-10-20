@@ -30,6 +30,8 @@ dotnet run --project src/WeatherRisk.Api --launch-profile http
 Then open:
 | URL | What |
 |---|---|
+| **http://localhost:5050/** | **Chat UI** — ask questions by typing or by voice 🎤 (Chrome/Edge) |
+| http://localhost:5050/?q=Why%20is%20the%20Dallas%20hub%27s%20risk%20high%3F | Deep link: asks the question on load |
 | http://localhost:5050/swagger | Swagger UI — try every endpoint live |
 | http://localhost:5050/api/risk/rankings?region=Midwest&hazard=Winter | Midwest hubs most exposed to winter |
 | http://localhost:5050/api/risk/compare?hubs=miami,houston&hazards=Hurricane&hazards=Flood | Miami vs Houston, hurricane and flood |
@@ -70,7 +72,14 @@ dotnet ef migrations add <Name> --project src/WeatherRisk.Data --output-dir Pers
 
 ### Visual Studio 2026
 Open `WeatherRisk.slnx`, set **WeatherRisk.Api** as the startup project, choose the **http** profile, press F5.
-The browser opens Swagger.
+The browser opens the chat UI.
+
+### Chat UI
+![Chat UI](docs/images/chat-answer.png)
+- Type a question or tap an example; **🎤** dictates (Chrome/Edge — the browser asks for microphone permission);
+  **🔊** reads answers aloud; **New chat** starts a fresh conversation (follow-ups keep context until then).
+- Each answer shows the numbers it cites with **✓ verified** against the deterministic tools, key factors,
+  caveats, follow-up suggestions, and **How I got this** (tools called, model, timing).
 
 ## Configuration
 `src/WeatherRisk.Api/appsettings.json`:
@@ -97,3 +106,8 @@ dotnet test
 ```
 Runs unit tests, repository tests (in-memory SQLite with the real migrations) and endpoint tests (the full
 HTTP pipeline in memory with a temporary database) — no network access needed.
+
+UI logic (Markdown renderer incl. XSS safety, formatting helpers) — requires Node.js 22+, no packages:
+```powershell
+node --test "tests/ui/*.test.mjs"
+```

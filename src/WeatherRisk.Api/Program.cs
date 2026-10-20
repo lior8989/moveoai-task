@@ -1,6 +1,7 @@
 using System.Text.Json.Serialization;
 using WeatherRisk.Api.Agent;
 using WeatherRisk.Api.Background;
+using WeatherRisk.Api.ChatUi;
 using WeatherRisk.Api.Endpoints;
 using WeatherRisk.Api.Errors;
 using WeatherRisk.Api.Observability;
@@ -52,6 +53,9 @@ app.UseSwaggerUI(options =>
     options.DocumentTitle = "Weather Risk API";
 });
 
+// Chat UI (wwwroot) at "/": static files short-circuit before routing, metrics and rate limiting.
+app.UseChatUi();
+
 // Pipeline order matters:
 // routing (so metrics know the route template) → metrics (outermost for /api, so they record the final
 // status of everything below) → exception handler (domain exceptions → 404/400, others → 500) →
@@ -70,8 +74,5 @@ app.MapSystemEndpoints();
 app.MapHubEndpoints();
 app.MapRiskEndpoints();
 app.MapChatEndpoints();
-
-// Until the chat UI lands (task 8), the root opens Swagger.
-app.MapGet("/", () => Results.Redirect("/swagger")).ExcludeFromDescription();
 
 await app.RunAsync();

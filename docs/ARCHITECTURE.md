@@ -84,6 +84,8 @@ src/
     RateLimiting/                Rate-limiter configuration
     Persistence/                 SQLite path resolution, schema describer
     Background/                  Hosted services (data warm-up)
+    ChatUi/                      Static UI hosting (default files, security headers)
+    wwwroot/                     Chat UI: index.html, css/app.css, js/{app,markdown,format,voice}.js
   WeatherRisk.Core/              Domain + scoring logic (no infrastructure dependencies)
     Domain/                      Hub, Region, HazardType
     Weather/                     DailyWeather, WeatherSummary, thresholds, statistics calculator
@@ -111,6 +113,8 @@ tests/
   WeatherRisk.Api.Tests/         Endpoint tests (WebApplicationFactory, temp SQLite file) + Api unit tests
   WeatherRisk.Core.Tests/        Golden-value unit tests for statistics, scorers, engine, ranking
   WeatherRisk.Data.Tests/        Repository + schema tests on in-memory SQLite with real migrations
+  ui/                            Node built-in test runner tests for the UI's pure JS (markdown, format)
+docs/images/                     UI screenshots
 dotnet-tools.json                Local tools (dotnet-ef) — `dotnet tool restore`
 .editorconfig                    Formatting; exempts generated migrations from the XML-doc rule
 docs/                            Architecture, plan, session transcript
@@ -380,6 +384,30 @@ so the model can self-correct instead of failing the conversation.
 expiry, max 1,000 conversations (own size-limited `MemoryCache`). Only Q&A text is kept — tool data is
 re-fetched cheaply — which keeps prompts small. Swap for SQLite/Redis to survive restarts or scale out.
 
+## 7b. Chat UI (`src/WeatherRisk.Api/wwwroot`)
+
+A static page served by the API at `/` — **no framework, no build step, no CDN** (works offline in a demo).
+
+| File | Responsibility |
+|---|---|
+| `index.html` | Layout: header (health badge, read-aloud, new chat, API link), log, example questions, composer with 🎤 |
+| `js/app.js` | Controller: `POST /api/chat`, renders the structured answer, conversation id, health polling, `?q=` deep link |
+| `js/markdown.js` | Safe Markdown → HTML (**escape everything first**, then add our own tags) — model output can't inject markup |
+| `js/format.js` | Pure helpers (numbers, durations, health colours, ProblemDetails → message) |
+| `js/voice.js` | Voice input (Web Speech API recognition) and read-aloud (speech synthesis); hidden if unsupported |
+| `css/app.css` | Styling with light/dark themes |
+
+Each answer shows: Markdown text · **"Numbers cited" table with ✓ verified / ⚠ unverified** (the grounding
+check) · key factors · confidence & caveats · assumptions · clickable follow-ups · a collapsible
+**"How I got this"** panel (tool calls with arguments and timings, model, steps, tokens, duration).
+Errors (429/502/503) render as friendly messages, including the hint to the deterministic endpoints.
+
+**Security:** strict Content-Security-Policy (`default-src 'self'`, no inline script/style), `nosniff`,
+`no-referrer`; assets use `Cache-Control: no-cache` + ETag (not fingerprinted, so browsers revalidate).
+Static files short-circuit before routing, so they don't touch API metrics or rate limits.
+
+![Chat UI — answer](images/chat-answer.png)
+
 ## 8. Monitoring, rate limiting & resilience
 
 ### Request pipeline (order matters)
@@ -488,6 +516,9 @@ checks; `/api/chat` has its own stricter rate limit (default 10/min per client) 
 | Grounding check on cited numbers | Cheap, deterministic guard against the LLM's main failure mode (plausible invented numbers). |
 | Model × provider fallback chain | Free tiers rate-limit per model; spreading load over models keeps the chat available. |
 | In-memory conversation store behind an interface | Zero setup for a single-instance demo; persistence is a one-class swap. |
+| Vanilla HTML/CSS/ES modules for the UI | One page, no build tooling or dependencies to install; served by the same process; easy to read. |
+| Own Markdown renderer (escape-first) | ~80 lines covering what the assistant writes; no third-party script, and XSS-safe by construction (tested). |
+| Browser Web Speech API for voice | Free, no server-side audio pipeline; graceful hiding where unsupported (e.g. Firefox). |
 | Rate limit partitioned by client IP | Simple and fair for a demo; assumes no reverse proxy (would need forwarded headers). |
 
 ## 11. Assumptions & uncertainty
