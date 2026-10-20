@@ -34,7 +34,36 @@ evaluation set, monitoring, and (bonus) risk-change alerts.
         ▼                                         ▼
  Open-Meteo Historical API, FEMA NRI       LLM APIs (Groq / Gemini, OpenAI-compatible)
 ```
-*Component details: TBD (tasks 2–10).*
+### Layers
+| Layer | Project | Responsibility |
+|---|---|---|
+| HTTP / composition | `WeatherRisk.Api` | Endpoints (thin), contracts + mapping, middleware, DI wiring, background services |
+| Application | `WeatherRisk.Core/Application` | `HubRiskService` use cases: assess, rank, compare, weather statistics — shared by REST endpoints and (task 7) the LLM agent's tools |
+| Domain | `WeatherRisk.Core` | Scoring engine, hazard strategies, ranking, statistics, repository/data-source ports |
+| Infrastructure | `WeatherRisk.Data` | SQLite repositories, Open-Meteo/FEMA clients, cache-first provider |
+
+Request flow for `GET /api/hubs/dallas/risk`:
+```
+HubEndpoints.GetRiskAsync → HubRiskService.AssessAsync
+   → IHubRepository (hub) → IHubDataProvider (baseline + weather: cache-first)
+   → WeatherStatisticsCalculator (window summary) → RiskScoringEngine (5 IHazardScorer strategies)
+   → freshness notes → ContractMapper → JSON (enums as names)
+```
+
+### API endpoints
+| Method & route | Purpose | Brief question it answers |
+|---|---|---|
+| `GET /api/hubs?region=` | List hubs | — |
+| `GET /api/hubs/{id}` | One hub | — |
+| `GET /api/hubs/{id}/risk` | Composite + per-hazard breakdown, contributions, evidence, provenance | "Why is the Dallas hub's risk high?" |
+| `GET /api/hubs/{id}/weather?from=&to=` | Disruption-day counts, % of days, per-year, totals (default: last full year) | "What % of days in Denver last year had snowfall?" |
+| `GET /api/risk/rankings?region=&hazard=&top=` | Rank by composite or hazard | "Which Midwest hubs are most exposed to winter?" |
+| `GET /api/risk/compare?hubs=a,b&hazards=` | Side-by-side rows + full breakdowns | "Compare Miami and Houston for hurricane and flood" |
+| `GET /api/risk/model` | Live description of the model (weights, thresholds, bands, assumptions) | "How is the score calculated?" |
+| `GET /api/system/health · metrics · schema` | Operations (task 2/4/5) | — |
+
+Errors are RFC 7807 ProblemDetails: unknown hub → 404 (`unknownHubs` extension), invalid enum/date/period/top → 400.
+Score history endpoints arrive with the scheduler that records snapshots (task 10).
 
 ## 3. Repository structure
 ```
@@ -45,8 +74,10 @@ global.json                      SDK pin + Microsoft Testing Platform runner
 src/
   WeatherRisk.Api/               Composition root (ASP.NET Core Minimal API)
     Program.cs                   DI registration + middleware pipeline
-    Endpoints/                   Endpoint groups (one static class per resource)
-    Contracts/                   Request/response records (never EF entities)
+    Endpoints/                   Endpoint groups: System, Hubs, Risk (one static class per resource)
+    Contracts/                   Response records per area (System, Hubs, Risk) + ContractMapper
+    Risk/                        Risk-model DI registration, model describer
+    Errors/                      DomainExceptionHandler (domain exceptions → 404/400 ProblemDetails)
     Observability/               Request + dependency metrics, health checks
     RateLimiting/                Rate-limiter configuration
     Persistence/                 SQLite path resolution, schema describer
@@ -57,7 +88,8 @@ src/
     Scoring/                     Engine, settings, results, IHazardScorer
       Hazards/                   One scorer per hazard + shared HazardMath
     Ranking/                     HubRanker (rank + compare)
-    Abstractions/                Repository interfaces (ports) implemented by Data
+    Abstractions/                Ports implemented by Data: repositories, data sources, data provider
+    Application/                 HubRiskService (use cases), result records, domain exceptions
   WeatherRisk.Data/              EF Core/SQLite persistence + external API clients
     Persistence/
       Entities/                  EF entities (one per table)
@@ -285,10 +317,13 @@ ML.NET) so the index predicts real disruption days or cost — the model structu
 
 ### Request pipeline (order matters)
 ```
-ExceptionHandler → StatusCodePages (ProblemDetails) → Swagger → Routing → RequestMetrics → RateLimiter → Endpoint
+Swagger → Routing → RequestMetrics → ExceptionHandler → StatusCodePages (ProblemDetails) → RateLimiter → Endpoint
 ```
 Metrics run after routing (so requests are labelled by route template, e.g. `GET /api/hubs/{id}`, keeping
-the number of keys bounded) and before the rate limiter (so 429 rejections are counted).
+the number of keys bounded) and *outside* the exception handler and rate limiter, so they record the final
+status of everything: handled domain exceptions as 404/400 (not 500), unhandled ones as 500, and 429s.
+The route label is captured before the request proceeds because the exception handler clears the endpoint.
+Domain exceptions are not logged as errors (`SuppressDiagnosticsCallback`) — they are expected outcomes.
 
 ### Request metrics — `GET /api/system/metrics`
 | Field | Meaning |
@@ -372,6 +407,11 @@ calls — found when a cold fetch of all 15 hubs got 429s for the last 3. *(Task
 | Passive dependency health checks | Instant, quota-free; reflect real recent outcomes. |
 | Metrics handler in Api, fallback reporting via Core interface | Data never references Api; monitoring stays in one place. |
 | Background warm-up at startup | Cold fetch ≈ 50 s (quota-bound); users shouldn't pay it on their first question. |
+| `HubRiskService` in Core (application layer) | One set of use cases for REST and the LLM agent; testable with fakes; no HTTP or EF knowledge. |
+| Domain exceptions + one `IExceptionHandler` | Endpoints stay one-liners; mapping to ProblemDetails lives in one place (Chain of Responsibility). Exceptions only on error paths, so no hot-path cost. |
+| Options pattern for scoring settings, plain objects in Core | Binds from the final configuration (a test caught that reading config during registration missed later providers); validated at startup; Core stays dependency-free. |
+| Enums serialized as names | Readable for analysts and the LLM; Swagger lists allowed values; invalid values → 400. |
+| No result cache over scoring | Measured ~10 ms per warm hub assessment; caching would add invalidation for no gain. |
 | Rate limit partitioned by client IP | Simple and fair for a demo; assumes no reverse proxy (would need forwarded headers). |
 
 ## 11. Assumptions & uncertainty
