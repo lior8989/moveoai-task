@@ -2,7 +2,7 @@
 
 Each task is developed on its own branch, reviewed by the owner, merged to `main` via PR, then the next task starts.
 
-**Status legend:** ⬜ Not started · 🟡 In progress / in review · ✅ Merged
+**Status legend:** ⬜ Not started · 🟡 In progress / in review · ✅ Merged · ⏭️ Skipped
 
 | # | Status | Branch | Scope | Tests |
 |---|---|---|---|---|
@@ -14,9 +14,9 @@ Each task is developed on its own branch, reviewed by the owner, merged to `main
 | 6 | ✅ | `feature/hub-risk-api` | `HubRiskService` (application layer shared with the agent); REST endpoints: hubs, risk breakdown, weather stats, rankings, comparison, model description; domain exceptions → ProblemDetails; options-bound scoring config; full Swagger docs | Unit + endpoint tests |
 | 7 | ✅ | `feature/llm-agent` | Own OpenAI-compatible LLM client (Groq / Gemini / Ollama via config) with **model × provider fallback chain**; 6 tools over `HubRiskService`; JSON-schema-enforced `submit_answer` (schema from C# record, strict parse, repair loop) + **grounding check**; in-memory conversation memory; `/api/chat` with its own rate limit | Unit + endpoint (fake LLM) + live validation |
 | 8 | ✅ | `feature/chat-ui` | Static HTML/CSS/JS chat page at `/` (no framework/CDN): structured answer rendering with verified-numbers table, follow-up chips, audit panel; voice input + read-aloud (Web Speech API); safe Markdown; CSP; `?q=` deep links | Endpoint (static files, headers) + Node UI unit tests + screenshot check |
-| 9 | 🟡 | `feature/evaluation` | Black-box eval runner (HTTP) + `eval-cases.json`: 9 deterministic model checks + 13 agent cases (brief questions, follow-up, false premise, out-of-scope, unknown hub, …) with ground truth resolved live; Markdown/JSON report; `AnswerCleaner` from eval findings | Unit (evaluators) + live eval: 9/9, 13/13 |
-| 10 | ⬜ | `feature/risk-alerts` *(bonus)* | Scheduled score recompute (`BackgroundService`) recording snapshots, change detection (Observer), log + webhook notifiers, `/api/alerts` and score-history endpoints | Unit + endpoint |
-| 11 | ⬜ | `docs/final-and-session` | Finalize architecture doc, README, assumptions/uncertainty/scope; export AI session transcript to `docs/session/` | — |
+| 9 | ✅ | `feature/evaluation` | Black-box eval runner (HTTP) + `eval-cases.json`: 9 deterministic model checks + 13 agent cases (brief questions, follow-up, false premise, out-of-scope, unknown hub, …) with ground truth resolved live; Markdown/JSON report; `AnswerCleaner` from eval findings | Unit (evaluators) + live eval: 9/9, 13/13 |
+| 10 | ⏭️ skipped | `feature/risk-alerts` *(bonus)* — not built for time; design in ARCHITECTURE §13 | Scheduled score recompute (`BackgroundService`) recording snapshots, change detection (Observer), log + webhook notifiers, `/api/alerts` and score-history endpoints | Unit + endpoint |
+| 11 | 🟡 | `docs/final-and-session` | Final architecture doc (requirements traceability, assumptions/uncertainty/limitations, future work), README quick start; session export tool + transcript in `docs/session/`; full end-to-end verification | Full verification |
 | — | ⬜ | *(optional)* | Deploy to a public URL | — |
 
 **Priority (24h budget):** 1–9 and 11 required; 10 and optional items are bonus.
