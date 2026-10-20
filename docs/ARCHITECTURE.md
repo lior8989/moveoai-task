@@ -1,17 +1,23 @@
 # Weather Risk Intelligence Agent — Design & Architecture
 
-> Living document: updated in every task branch. Sections marked *TBD* are filled in by the task noted.
+> Written and updated task by task while building (see [PLAN.md](PLAN.md)); final as of the last task.
+> Quick links: [requirements traceability](#12-requirements-traceability) · [assumptions & uncertainty](#11-assumptions--uncertainty) ·
+> [evaluation results](#9-evaluation) · [AI session transcript](session/session-transcript.md).
 
 ## 1. Problem & scope
 A logistics company runs regional distribution hubs across the US. Severe weather shuts hubs down and
 costs money; each year a handful of hubs get resilience investment. This system is an AI agent that helps
 analysts **rank, compare, and explain hub exposure to weather disruption**, conversationally.
 
-**In scope:** 15 US hubs, four hazard categories (winter, hurricane/wind, flood, heat), historical weather
-statistics, a deterministic risk score, an LLM agent that uses that score as tools, chat UI with voice,
-evaluation set, monitoring, and (bonus) risk-change alerts.
+**In scope (built):** 15 US hubs; five hazard categories (winter, hurricane, flood, severe storm, heat);
+public data from Open-Meteo (5 years of daily weather) and FEMA NRI (county hazard frequency); a
+deterministic, explainable risk score; an LLM agent that uses it through tools with JSON-schema-enforced,
+grounding-checked answers and follow-ups; REST API with Swagger; chat UI with voice; evaluation set and
+runner; monitoring, rate limiting and fallbacks.
 
-**Out of scope:** real company hub data, financial loss modelling, forecasting, authentication / multi-tenant.
+**Out of scope:** real company hub data and losses (so no calibration), forecasting / live warnings,
+authentication and multi-tenancy, deployment to a public URL, and the **bonus scheduled risk-change alerts**
+(not built for time — design sketch in §13).
 
 ## 2. System architecture
 ```
@@ -19,28 +25,32 @@ evaluation set, monitoring, and (bonus) risk-change alerts.
         │  HTTP/JSON
         ▼
  ┌──────────────────────── WeatherRisk.Api (ASP.NET Core, single process) ────────────────────────┐
- │  Middleware: metrics · rate limiting · ProblemDetails          Swagger UI (/swagger)            │
- │  Endpoints: /api/chat · /api/hubs · /api/scores · /api/system/* · /api/alerts                   │
+ │  Static chat UI (/)   ·   Swagger UI (/swagger)   ·   OpenAPI (/openapi/v1.json)                │
+ │  Middleware: routing → request metrics → exception handler (ProblemDetails) → rate limiter      │
+ │  Endpoints: /api/chat · /api/hubs/* · /api/risk/* · /api/system/{health,metrics,schema}         │
  │                                                                                                 │
- │  Agent ── LLM provider chain (Groq → Gemini) ── JSON-schema validation                          │
- │    │ tool calls                                                                                 │
+ │  ChatAgent ── ILlmClient = fallback chain (Groq gpt-oss-120b → 20b → qwen → Gemini)             │
+ │    │ 6 tools          └─ submit_answer: JSON schema (from C# record) → strict parse → grounding │
  │    ▼                                                                                            │
- │  Core: scoring engine (per-hazard strategies → weighted composite), ranking, comparison         │
+ │  HubRiskService (use cases) → scoring engine (5 hazard strategies → composite), ranking         │
  │    │                                                                                            │
- │  Data: repositories (EF Core) ── SQLite file   ·   API clients (resilient HttpClient) + cache   │
- │  Background: score recompute scheduler → change detection → alert notifiers (bonus)             │
+ │  Data: repositories (EF Core) ── SQLite file   ·   cache-first provider ── resilient clients    │
+ │  Background: data warm-up at startup                                                            │
  └─────────────────────────────────────────────────────────────────────────────────────────────────┘
         │ HTTPS                                   │ HTTPS
         ▼                                         ▼
  Open-Meteo Historical API, FEMA NRI       LLM APIs (Groq / Gemini, OpenAI-compatible)
 ```
+Everything runs in **one process with one SQLite file** — the only external dependencies are the free
+public data APIs and the LLM API.
 ### Layers
 | Layer | Project | Responsibility |
 |---|---|---|
 | HTTP / composition | `WeatherRisk.Api` | Endpoints (thin), contracts + mapping, middleware, DI wiring, background services |
-| Application | `WeatherRisk.Core/Application` | `HubRiskService` use cases: assess, rank, compare, weather statistics — shared by REST endpoints and (task 7) the LLM agent's tools |
+| Application | `WeatherRisk.Core/Application` + `Core/Agent` | `HubRiskService` use cases (assess, rank, compare, weather statistics) shared by REST endpoints and the agent's tools; `ChatAgent` loop |
 | Domain | `WeatherRisk.Core` | Scoring engine, hazard strategies, ranking, statistics, repository/data-source ports |
-| Infrastructure | `WeatherRisk.Data` | SQLite repositories, Open-Meteo/FEMA clients, cache-first provider |
+| Infrastructure | `WeatherRisk.Data` | SQLite repositories, Open-Meteo/FEMA clients, cache-first provider, LLM clients + fallback chain |
+| Evaluation | `WeatherRisk.Eval` | Black-box runner over HTTP (no project references) |
 
 Request flow for `GET /api/hubs/dallas/risk`:
 ```
@@ -61,10 +71,11 @@ HubEndpoints.GetRiskAsync → HubRiskService.AssessAsync
 | `GET /api/risk/compare?hubs=a,b&hazards=` | Side-by-side rows + full breakdowns | "Compare Miami and Houston for hurricane and flood" |
 | `GET /api/risk/model` | Live description of the model (weights, thresholds, bands, assumptions) | "How is the score calculated?" |
 | `POST /api/chat` | Conversational agent (§7): any of the above in natural language, with follow-ups | All of them |
-| `GET /api/system/health · metrics · schema` | Operations (task 2/4/5) | — |
+| `GET /api/system/health · metrics · schema` | Operations: health checks, request/dependency metrics, live DB schema (§4, §8) | — |
 
-Errors are RFC 7807 ProblemDetails: unknown hub → 404 (`unknownHubs` extension), invalid enum/date/period/top → 400.
-Score history endpoints arrive with the scheduler that records snapshots (task 10).
+Errors are RFC 7807 ProblemDetails: unknown hub → 404 (`unknownHubs` extension), invalid enum/date/period/top
+or malformed body → 400, rate limit → 429 + `Retry-After`, agent failure → 502, LLM unavailable → 503 (with a
+hint to the deterministic endpoints).
 
 ## 3. Repository structure
 ```
@@ -132,7 +143,7 @@ docs/                            Architecture, plan, session transcript
 - Swap path: EF Core makes moving to PostgreSQL a provider/connection-string change.
 - File: `src/WeatherRisk.Api/App_Data/weatherrisk.db` (git-ignored). Created and migrated automatically on
   startup; safe to delete — it is a cache plus score history and will be rebuilt.
-- **WAL mode** is enabled so the background scorer (task 10) can write while API requests read.
+- **WAL mode** is enabled so background writes (data warm-up today, a future alert scheduler) don't block API reads.
 
 ### Schema
 Live description (columns, types, keys, indexes, comments): **`GET /api/system/schema`** — generated at
@@ -440,7 +451,7 @@ Provided per endpoint and overall (`ALL`). Unknown `/api` routes are grouped as 
 
 ### Health — `GET /api/system/health`
 ASP.NET Core health checks; 200 for Healthy/Degraded, 503 for Unhealthy. Dependency checks are added by
-the features that own them (task 5: data sources, task 7: LLM).
+the features that own them (data sources, LLM providers).
 
 ### Rate limiting
 Built-in ASP.NET Core rate limiter, **sliding window per client IP** (default 120 requests / 60 s,
@@ -501,7 +512,8 @@ Run: `dotnet run --project src/WeatherRisk.Eval` (API must be running) → `eval
 |---|---|---|---|---|---|
 | 1 | 9/9 | 11/13 | 43/45 | 3.2 / 4.9 s | A11 → 503 (all models rate-limited, 12 fallbacks); A9 "missing New Orleans" |
 | 2 | 9/9 | 12/13 | 46/47 | 2.9 / 4.5 s | A10 "unknown hub" phrase not matched |
-| **3 (final)** | **9/9** | **13/13** | **47/47** | **3.9 / 5.9 s** | 5 fallbacks absorbed by the chain |
+| 3 | 9/9 | 13/13 | 47/47 | 3.9 / 5.9 s | 5 fallbacks absorbed by the chain |
+| **4 (final verification, committed)** | **9/9** | **13/13** | **47/47** | **3.3 / 6.5 s** | Clean rebuild + cold start with a fresh database; 2 fallbacks absorbed |
 
 What the failures taught us — and which side was fixed:
 - **Evaluator bugs (2):** the model writes `New Orleans` (narrow no-break space), `heavy‑rain` and
@@ -564,22 +576,66 @@ the deterministic layer and grounding checks are stable.
 | Rate limit partitioned by client IP | Simple and fair for a demo; assumes no reverse proxy (would need forwarded headers). |
 
 ## 11. Assumptions & uncertainty
-*Collected throughout tasks, finalized in task 11.*
-- Monitoring data is in-memory and per-process; it resets on restart and isn't shared across instances.
-- Rate-limit client identity = remote IP address (no auth, no proxy).
-- **Scoring parameters are uncalibrated expert assumptions** (thresholds, caps, weights, 50/50 worst-hazard
-  blend). They produce a sensible *relative* ranking but are not a prediction of disruption days or cost.
-- Daily max gust is a coarse proxy for tornadoes/hail and hurricanes, hence the heavy NRI weighting there.
-- Point weather at hub coordinates stands in for the hub's operating area (roads/suppliers may differ).
-- FEMA NRI is county-level; we use hazard *frequency* percentiles (how often, relative to US counties), not
-  severity or our facility's vulnerability. Frequency units differ per hazard (events vs event-days per year),
-  which percentiles normalize away.
-- "Not applicable" in NRI (null frequency) is treated as zero exposure for that hazard.
-- Open-Meteo values are reanalysis/model-based estimates at a grid point near the hub, not station readings.
-- 5 years of observations is short for rare hazards; the baseline compensates but uncertainty remains.
-- Hub locations are city centres of real US cities standing in for the company's (unknown) hub sites.
-- **LLM limits:** grounding verifies cited *numbers*, not every sentence — prose can still over-interpret
-  (mitigated by prompt rules and evidence-rich tool results). The fallback model (gpt-oss-20b) follows
-  formatting rules less strictly (e.g. sometimes repeats follow-ups inside the answer text).
-- Groq free tier ≈ 8,000 tokens/min per model ≈ 1–2 questions/min per model; the chain spreads bursts across
-  three models. Conversations are in memory and lost on restart.
+
+### Assumptions (domain and data)
+| Area | Assumption | Why it matters |
+|---|---|---|
+| Hubs | 15 real US city centres stand in for the company's (unknown) hub sites; includes every city in the brief | Point/county data may differ from the exact facility |
+| Model parameters | **Thresholds, caps, weights and the 50/50 worst-hazard blend are uncalibrated expert assumptions** | Scores rank *relative* exposure; they don't predict closure days or cost |
+| Observed weather | Open-Meteo reanalysis at a grid point near the hub, last 5 full calendar years | Model estimates, not station readings; 5 years is short for rare hazards |
+| FEMA baseline | County *frequency* percentiles vs all US counties (not NRI risk scores, which scale with population/property) | Frequency ≠ severity, and says nothing about our facility's vulnerability |
+| Not applicable | NRI null frequency = no exposure (hazard scores 0, e.g. hurricanes in Denver) | Correct for hurricanes/coastal flooding inland; noted in the evidence |
+| Proxies | Daily max gust is a weak proxy for tornado/hail and can't identify hurricanes | Hence FEMA dominates those hazards (hurricane observed weight = 0) |
+| "Last year" | The last full calendar year in the window (2025 when run in 2026) | Partial current-year data would bias rates |
+
+### How uncertainty is communicated to the analyst
+- **Confidence** on every score (High / Medium / Low) from data completeness, plus **notes** when data is
+  missing or partial.
+- **Data provenance** on every assessment: window, `Fresh / Cached / Stale / Unavailable`, retrieval time —
+  stale cache after an outage is served *and flagged*.
+- **Evidence and contributions** per hazard, so a score can be traced to its inputs; `/api/risk/model`
+  states the model and its assumptions.
+- The agent's answer has explicit **`uncertainty`** and **`assumptions`** fields, and every cited number is
+  marked **verified / unverified** by the grounding check (shown as ✓ / ⚠ in the UI).
+- The agent is instructed to **correct false premises** (eval case A6: "why is Seattle so high?" → it is Low).
+
+### Known limitations
+- **LLM:** grounding verifies cited *numbers*, not every sentence — prose can still over-interpret (mitigated
+  by prompt rules and evidence-rich tool results). Answers are non-deterministic run to run.
+- **Free-tier capacity:** Groq ≈ 8,000 tokens/min per model ≈ 1–2 questions/min per model; the chain spreads
+  bursts over three models; beyond that `/api/chat` returns 503 while all deterministic endpoints keep working.
+- **State is per process:** conversations, request metrics and the rate limiter are in memory (lost on
+  restart, not shared across instances). The SQLite cache and score history persist.
+- **No auth:** rate limiting is per client IP and assumes no reverse proxy.
+
+## 12. Requirements traceability
+
+| Assignment requirement | Where / how | Status |
+|---|---|---|
+| Answer the 4 example questions | Agent tools + REST: rankings (`region=Midwest&hazard=Winter`), compare, weather stats, risk breakdown — eval cases A1–A4 pass | ✅ |
+| Use public APIs for weather and hazard data | Open-Meteo Historical (§5), FEMA National Risk Index (§5) — free, no keys | ✅ |
+| Rank or compare hubs on a defined KPI | Composite risk index 0–100 + per-hazard scores (§6); `HubRanker` | ✅ |
+| Explain reasoning clearly | Drivers, contributions summing to the composite, evidence, notes (§6); agent prompt + `keyFactors` (§7) | ✅ |
+| Conversational follow-ups | Conversation memory (§7); eval A5 ("How does *it* compare … on *those drivers*?") passes | ✅ |
+| Deterministic scoring, not only LLM output | `RiskScoringEngine` (pure, golden-tested); the LLM never computes scores; grounding check | ✅ |
+| Chat interface (voice bonus) | `wwwroot` chat UI (§7b) with 🎤 voice input and 🔊 read-aloud | ✅ + bonus |
+| Agent exposed through an API used by the chat UI | `POST /api/chat`; the UI calls only this API | ✅ |
+| Structured output (JSON schema) between LLM and code | `submit_answer` schema generated from `AgentAnswer`, forced tool call, strict parse + repair (§7) | ✅ |
+| Small evaluation set and a way to run it | `WeatherRisk.Eval` + `eval-cases.json` (§9); 9/9 model checks, 13/13 agent cases | ✅ |
+| Communicate assumptions, uncertainty, scoping | §1, §11; confidence/provenance/uncertainty in every response | ✅ |
+| Bonus: scheduled/webhook alert on score change | Not built (time); storage ready (`RiskScoreSnapshots`), design in §13 | ⬜ |
+| Source code + run instructions | Repository + [README](../README.md) | ✅ |
+| Live demo (URL preferred, not mandatory) | Runs locally with one command; not deployed | ✅ local |
+| Design doc: architecture, repo structure, data storage | §2, §3, §4 | ✅ |
+| Full AI session (plan + conversation) | [session/session-transcript.md](session/session-transcript.md) + raw log; plan in [PLAN.md](PLAN.md) | ✅ |
+
+## 13. Future work
+- **Risk-change alerts (bonus, designed, not built):** a `BackgroundService` re-scores all hubs on a schedule
+  (and after data refreshes), appends `RiskScoreSnapshots` (table and repository already exist), compares each
+  hub with its previous snapshot, and on a rating change or a composite move ≥ N points publishes an event to
+  `IAlertNotifier` observers (log, webhook with retry); `/api/alerts` and `/api/hubs/{id}/history` expose them.
+- **Calibration:** fit weights/caps to the company's closure and cost history (e.g. regression in ML.NET) so the
+  index predicts disruption days or cost; keep the same explainable structure.
+- **Operations:** deploy (container + managed LLM key), persist conversations (SQLite/Redis implementation of
+  `IConversationStore`), authentication and per-user rate limits, OpenTelemetry export of the existing metrics.
+- **Data:** company hub coordinates and operating area, forecasts / live NWS alerts for near-term risk.

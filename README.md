@@ -1,11 +1,27 @@
 # Weather Risk Intelligence Agent
 
 An AI agent that helps logistics analysts decide which US distribution hubs are most exposed to weather
-disruption — ranking, comparing and explaining hub risk using public weather/hazard data, a deterministic
-scoring model, and an LLM for conversation.
+disruption — ranking, comparing and explaining hub risk using public weather/hazard data (Open-Meteo,
+FEMA National Risk Index), a **deterministic, explainable scoring model**, and an LLM agent that answers in
+natural language (with follow-ups and voice) through a JSON-schema-enforced, grounding-checked contract.
 
-- **Design & architecture:** [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
-- **Task plan:** [docs/PLAN.md](docs/PLAN.md)
+## Quick start
+```powershell
+# 1. One-time: store a free Groq key (https://console.groq.com) outside the repo
+dotnet user-secrets set "Llm:Providers:Groq:ApiKey" "<your-groq-key>" --project src/WeatherRisk.Api
+# 2. Run (creates the SQLite DB and downloads weather/FEMA data in the background on first start, ~1 min)
+dotnet run --project src/WeatherRisk.Api --launch-profile http
+# 3. Open http://localhost:5050  (chat UI)  ·  http://localhost:5050/swagger  (API)
+```
+
+## Deliverables
+| | |
+|---|---|
+| Design & architecture (components, repo structure, data storage, decisions, assumptions, requirements traceability) | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) |
+| Evaluation set, runner and latest results (9/9 model checks, 13/13 agent cases) | [src/WeatherRisk.Eval](src/WeatherRisk.Eval) · [docs/evaluation/eval-report.md](docs/evaluation/eval-report.md) |
+| Full AI session (plan, discussion, every review round) | [docs/session/session-transcript.md](docs/session/session-transcript.md) (+ raw log) |
+| Task plan and status | [docs/PLAN.md](docs/PLAN.md) |
+| Engineering standards the AI agent followed | [CLAUDE.md](CLAUDE.md) · [.claude/skills](.claude/skills) |
 
 ## Prerequisites
 - .NET 10 SDK (`dotnet --list-sdks` should show 10.0.x)
@@ -122,3 +138,14 @@ UI logic (Markdown renderer incl. XSS safety, formatting helpers) — requires N
 ```powershell
 node --test "tests/ui/*.test.mjs"
 ```
+
+## Exporting the AI session
+```powershell
+node tools/export-session.mjs   # → docs/session/session-transcript.md + session-raw.jsonl
+```
+Reads the latest Claude Code session for this folder from `~/.claude/projects`, masks anything key-shaped.
+
+## Scope notes
+Not included (see [ARCHITECTURE §1, §13](docs/ARCHITECTURE.md#13-future-work)): the bonus scheduled
+risk-change alerts (designed, not built), deployment to a public URL, authentication, and calibration of the
+model weights (no company disruption data was available).
