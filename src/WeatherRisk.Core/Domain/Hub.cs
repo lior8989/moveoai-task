@@ -17,4 +17,14 @@ public sealed record Hub(
     Region Region,
     double Latitude,
     double Longitude,
-    string CountyFips);
+    string CountyFips)
+{
+    /// <summary>Normalizes a user- or LLM-supplied hub id to the stored form (trimmed, lower-case).</summary>
+    /// <param name="id">Raw id, e.g. <c>" Dallas "</c>.</param>
+    /// <returns>Normalized id, e.g. <c>dallas</c>.</returns>
+    public static string NormalizeId(string id)
+    {
+        ArgumentNullException.ThrowIfNull(id);
+        return id.Trim().ToLowerInvariant();
+    }
+}

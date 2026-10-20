@@ -39,3 +39,4 @@ Never commit or print API keys. LLM keys live in .NET user-secrets or environmen
 - Test: `dotnet test`
 - Run API (serves the chat UI + Swagger): `dotnet run --project src/WeatherRisk.Api`
 - Run evaluation: `dotnet run --project src/WeatherRisk.Eval`
+- New migration: `dotnet tool restore; dotnet ef migrations add <Name> --project src/WeatherRisk.Data --output-dir Persistence/Migrations`

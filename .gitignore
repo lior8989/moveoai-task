@@ -426,3 +426,9 @@ FodyWeavers.xsd
 
 # Official VS Code C# Dev Kit Extension exclusion
 #*.lscache
+
+# Local SQLite database (cache + score history; recreated by migrations on startup)
+App_Data/
+*.db
+*.db-shm
+*.db-wal

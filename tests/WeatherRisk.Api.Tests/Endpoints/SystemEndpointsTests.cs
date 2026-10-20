@@ -18,7 +18,7 @@ public sealed class SystemEndpointsTests : IClassFixture<WeatherRiskApiFactory>
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
     [Fact]
-    public async Task GetHealth_NoDependencyChecksYet_Returns200Healthy()
+    public async Task GetHealth_DatabaseReachable_Returns200HealthyWithDatabaseCheck()
     {
         HttpResponseMessage response = await _factory.CreateClient().GetAsync("/api/system/health", Ct);
 
@@ -27,7 +27,35 @@ public sealed class SystemEndpointsTests : IClassFixture<WeatherRiskApiFactory>
         HealthResponse? body = await response.Content.ReadFromJsonAsync<HealthResponse>(Ct);
         Assert.NotNull(body);
         Assert.Equal("Healthy", body.Status);
-        Assert.Empty(body.Checks);
+        HealthCheckEntry database = Assert.Single(body.Checks, c => c.Name == "database");
+        Assert.Equal("Healthy", database.Status);
+    }
+
+    [Fact]
+    public async Task GetSchema_DescribesAllTablesWithColumnsKeysAndComments()
+    {
+        DatabaseSchemaResponse? schema = await _factory.CreateClient()
+            .GetFromJsonAsync<DatabaseSchemaResponse>("/api/system/schema", Ct);
+
+        Assert.NotNull(schema);
+        Assert.Equal("Microsoft.EntityFrameworkCore.Sqlite", schema.Provider);
+        Assert.Equal(
+            ["DailyWeather", "HazardBaselines", "Hubs", "RiskScoreSnapshots", "WeatherSync"],
+            schema.Tables.Select(t => t.Name));
+
+        TableSchema daily = schema.Tables.Single(t => t.Name == "DailyWeather");
+        Assert.False(string.IsNullOrWhiteSpace(daily.Comment));
+        Assert.Equal(["HubId", "Date"], daily.Columns.Where(c => c.PrimaryKey).Select(c => c.Name));
+        ColumnSchema snow = daily.Columns.Single(c => c.Name == "SnowfallCm");
+        Assert.True(snow.Nullable);
+        Assert.Equal("REAL", snow.Type);
+        Assert.Contains("cm", snow.Comment);
+        ForeignKeySchema fk = Assert.Single(daily.ForeignKeys);
+        Assert.Equal("Hubs", fk.PrincipalTable);
+        Assert.Equal("Cascade", fk.OnDelete);
+
+        Assert.Contains(schema.Tables.Single(t => t.Name == "RiskScoreSnapshots").Indexes,
+            i => i.Columns.SequenceEqual(["HubId", "Id"]));
     }
 
     [Fact]
@@ -88,6 +116,7 @@ public sealed class SystemEndpointsTests : IClassFixture<WeatherRiskApiFactory>
 
         Assert.Contains("/api/system/health", document);
         Assert.Contains("/api/system/metrics", document);
+        Assert.Contains("/api/system/schema", document);
         Assert.Contains("Health of the API and its dependencies", document);
         Assert.Contains("\"503\"", document);
     }
