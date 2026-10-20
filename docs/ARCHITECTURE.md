@@ -50,10 +50,16 @@ src/
     Observability/               Request metrics middleware + collector, health checks
     RateLimiting/                Rate-limiter configuration
   WeatherRisk.Core/              Domain + scoring logic (no infrastructure dependencies)
+    Domain/                      Hub, Region, HazardType
+    Weather/                     DailyWeather, WeatherSummary, thresholds, statistics calculator
+    Scoring/                     Engine, settings, results, IHazardScorer
+      Hazards/                   One scorer per hazard + shared HazardMath
+    Ranking/                     HubRanker (rank + compare)
   WeatherRisk.Data/              EF Core/SQLite persistence + external API clients
 tests/
   WeatherRisk.Api.Tests/         Endpoint tests (WebApplicationFactory) + Api unit tests
-  (WeatherRisk.Core.Tests, WeatherRisk.Data.Tests are added with their first code in tasks 3–4)
+  WeatherRisk.Core.Tests/        Golden-value unit tests for statistics, scorers, engine, ranking
+  (WeatherRisk.Data.Tests is added with its first code in task 4)
 docs/                            Architecture, plan, session transcript
 .claude/skills/                  Engineering standards the AI agent must follow
 ```
@@ -77,7 +83,60 @@ docs/                            Architecture, plan, session transcript
 *Details: TBD (task 5).*
 
 ## 6. Risk scoring model (deterministic)
-*TBD (task 3).*
+
+The score is a **transparent, rule-based risk index** — not a trained ML model. The LLM never computes scores;
+it calls tools that run this model. No company disruption history was available to train or calibrate on,
+so the parameters below are documented expert assumptions, all overridable via configuration
+(`ScoringSettings`, `WeatherThresholds`).
+
+### Two signals per hazard
+| Signal | Source | Why |
+|---|---|---|
+| **Observed** | Open-Meteo daily history, last 5 full years | What actually happened recently at the hub's coordinates |
+| **Baseline** | FEMA National Risk Index, hub's county (0–100 national percentile) | Decades of hazard history; captures rare events (landfalls, tornadoes) that 5 years can miss |
+
+`hazardScore = w_obs × observed + (1 − w_obs) × baseline` — if one signal is missing, the other is used alone.
+
+### Hazards
+| Hazard | Observed: disruption day (threshold) | Cap (days/yr → 100) | NRI baseline (mean of available) | w_obs |
+|---|---|---|---|---|
+| Winter | 60% snow day (snowfall ≥ 1 cm) + 40% hard freeze (min ≤ −12 °C) | 40 snow / 30 freeze | Winter Weather, Ice Storm, Cold Wave | 0.60 |
+| Hurricane | Gust ≥ 90 km/h (tropical-storm force) | 3 | Hurricane | 0.25 |
+| Flood | Precipitation ≥ 50 mm | 6 | Riverine Flooding, Coastal Flooding | 0.50 |
+| Severe storm | Gust ≥ 75 km/h | 12 | Tornado, Hail, Strong Wind | 0.40 |
+| Heat | Max temperature ≥ 38 °C | 45 | Heat Wave | 0.60 |
+
+Observed score = `min(100, daysPerYear / cap × 100)`. `w_obs` is low where daily weather is a weak proxy
+(hurricanes, tornadoes/hail) and high where it measures the hazard directly (snow, heat).
+
+### Composite
+```
+composite = 0.5 × worstHazard + 0.5 × Σ(wᵢ × hazardᵢ) / Σwᵢ
+weights: Winter 0.25 · Hurricane 0.20 · Flood 0.20 · Severe storm 0.20 · Heat 0.15
+```
+The worst-hazard term prevents dilution: a hub that is extreme on one hazard (Miami/hurricanes) is
+high-risk even if every other hazard is benign. **Ratings:** Low < 25 ≤ Moderate < 50 ≤ High < 75 ≤ Very High.
+
+### Explainability & confidence
+Each `HubRiskScore` carries, per hazard: score, observed and baseline parts, **evidence factors** (e.g.
+`snowDaysPerYear = 18.4`, `nriHurricane = 97.2`), normalized weight and **contribution** (contributions sum
+exactly to the composite), plus the **top two drivers** and data **notes**.
+Confidence: **High** = full weather coverage (≥ 90% of the window) and NRI present; **Medium** = one signal
+missing/incomplete; **Low** = neither.
+
+### Components (WeatherRisk.Core)
+| Component | Pattern / role |
+|---|---|
+| `WeatherStatisticsCalculator` | Single-pass aggregation of daily rows → `WeatherSummary` (also answers "% of snow days in Denver last year") |
+| `IHazardScorer` + 5 implementations | **Strategy** — one per hazard; adding a hazard = adding a class (Open/Closed) |
+| `HazardMath` | Shared normalize/blend/single-metric recipe — keeps the four single-metric scorers ~10 lines each |
+| `RiskScoringEngine` | Composite, attribution, drivers, confidence; validates settings and scorer set at construction (fail fast) |
+| `HubRanker` | Pure ranking (by composite or hazard, region filter, top N, deterministic tie-breaks) and side-by-side comparison |
+| `ScoringSettings`, `WeatherThresholds` | Plain settings objects (Core has no dependency on `Microsoft.Extensions.Options`; the Api binds them) |
+
+### Future calibration
+With the company's historical closure/delay records, weights and caps could be fitted (e.g. regression in
+ML.NET) so the index predicts real disruption days or cost — the model structure stays the same.
 
 ## 7. Agent design & structured output
 *TBD (task 7).*
@@ -135,9 +194,22 @@ load, which is exactly when they're needed. Rejections: `429` + `Retry-After` + 
 | Built-in OpenAPI (`Microsoft.AspNetCore.OpenApi`) + Swagger UI | .NET 10's native document generator; Swashbuckle only for the UI. Swagger enabled in all environments so reviewers can test live. |
 | In-process metrics instead of Prometheus/Grafana | Zero infrastructure; enough to spot load spikes, failures and slow endpoints. |
 | `TimeProvider` injected | Time-dependent code (metric windows, later caching/alerts) is deterministic in tests. |
+| Rule-based risk index, not ML | Required deterministic logic; no labelled disruption data to train on; fully explainable. |
+| Observed + FEMA NRI blend per hazard | Recent local observations + long-term authoritative baseline; each covers the other's blind spot. |
+| Composite includes worst-hazard term | Plain averages dilute single extreme hazards (coastal hubs). |
+| Five small scorer classes over one generic configurable scorer | Each hazard's logic is readable on its own; shared math lives in `HazardMath`, so duplication stays minimal. |
+| `HubRanker` as static pure functions | No state, no dependencies, nothing to substitute — an interface would add ceremony without benefit. |
+| `DailyWeather` as `readonly record struct` | ~1,800 rows per hub are aggregated per scoring; value type avoids per-row heap allocations. |
 | Rate limit partitioned by client IP | Simple and fair for a demo; assumes no reverse proxy (would need forwarded headers). |
 
 ## 11. Assumptions & uncertainty
 *Collected throughout tasks, finalized in task 11.*
 - Monitoring data is in-memory and per-process; it resets on restart and isn't shared across instances.
 - Rate-limit client identity = remote IP address (no auth, no proxy).
+- **Scoring parameters are uncalibrated expert assumptions** (thresholds, caps, weights, 50/50 worst-hazard
+  blend). They produce a sensible *relative* ranking but are not a prediction of disruption days or cost.
+- Daily max gust is a coarse proxy for tornadoes/hail and hurricanes, hence the heavy NRI weighting there.
+- Point weather at hub coordinates stands in for the hub's operating area (roads/suppliers may differ).
+- FEMA NRI is county-level and reflects national percentiles of *risk* (includes exposure/vulnerability of the
+  county, not of our facility).
+- 5 years of observations is short for rare hazards; the baseline compensates but uncertainty remains.

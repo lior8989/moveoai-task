@@ -6,5 +6,6 @@
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/WeatherRisk.Api.Tests/WeatherRisk.Api.Tests.csproj" />
+    <Project Path="tests/WeatherRisk.Core.Tests/WeatherRisk.Core.Tests.csproj" />
   </Folder>
 </Solution>
