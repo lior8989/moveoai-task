@@ -100,6 +100,17 @@ The browser opens the chat UI.
 | `RateLimiting:Chat` | `PermitLimit` / `WindowSeconds` | 10 / 60 | Per-client limit for `/api/chat` |
 | `RateLimiting:Global` | `PermitLimit` / `WindowSeconds` / `SegmentsPerWindow` | 120 / 60 / 6 | Per-client sliding window for `/api/*` (except `/api/system/*`) |
 
+## Evaluation
+With the API running (`dotnet run --project src/WeatherRisk.Api --launch-profile http`), in a second terminal:
+```powershell
+dotnet run --project src/WeatherRisk.Eval                  # 9 model checks + 13 agent cases (~6 min, paced for free LLM quotas)
+dotnet run --project src/WeatherRisk.Eval -- --skip-agent  # model checks only, seconds, no API key needed
+dotnet run --project src/WeatherRisk.Eval -- --only A1,A4  # selected cases
+```
+Reports are written to `eval-results/eval-report.md` and `.json`. Cases live in
+`src/WeatherRisk.Eval/eval-cases.json`. Latest committed run: [docs/evaluation/eval-report.md](docs/evaluation/eval-report.md)
+(**9/9 model checks, 13/13 agent cases, 47/47 checks**). Options: `--base-url`, `--cases`, `--out`, `--delay`.
+
 ## Testing
 ```powershell
 dotnet test

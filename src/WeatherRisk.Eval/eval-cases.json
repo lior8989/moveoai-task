@@ -1,0 +1,212 @@
+{
+  // Evaluation set for the Weather Risk Intelligence Agent.
+  // modelChecks: expert expectations about the deterministic model, checked via REST (no LLM).
+  // agentCases:  questions for the agent; expected values are resolved from the deterministic API at run
+  //              time (e.g. "the top-ranked Midwest winter hub"), so cases stay valid when data refreshes.
+  "modelChecks": [
+    {
+      "id": "M1",
+      "description": "Minneapolis is the Midwest hub most exposed to winter disruption",
+      "url": "/api/risk/rankings?region=Midwest&hazard=Winter",
+      "path": "entries[0].hubId",
+      "expect": { "equalTo": "minneapolis" }
+    },
+    {
+      "id": "M2",
+      "description": "Miami is more exposed to hurricanes than Houston",
+      "url": "/api/risk/compare?hubs=miami,houston&hazards=Hurricane",
+      "path": "rows[metric=Hurricane].values[hubId=miami].score",
+      "expect": { "greaterThan": { "url": "/api/risk/compare?hubs=miami,houston&hazards=Hurricane", "path": "rows[metric=Hurricane].values[hubId=houston].score" } }
+    },
+    {
+      "id": "M3",
+      "description": "Houston is more exposed to flooding than Miami",
+      "url": "/api/risk/compare?hubs=miami,houston&hazards=Flood",
+      "path": "rows[metric=Flood].values[hubId=houston].score",
+      "expect": { "greaterThan": { "url": "/api/risk/compare?hubs=miami,houston&hazards=Flood", "path": "rows[metric=Flood].values[hubId=miami].score" } }
+    },
+    {
+      "id": "M4",
+      "description": "Denver had snow on a plausible share of days last year (1–30%)",
+      "url": "/api/hubs/denver/weather",
+      "path": "disruptionDays[metric=snowDays].percentOfDays",
+      "expect": { "between": [ 1, 30 ] }
+    },
+    {
+      "id": "M5",
+      "description": "Dallas is rated High or Very High overall (the brief calls it high)",
+      "url": "/api/hubs/dallas/risk",
+      "path": "rating",
+      "expect": { "anyOf": [ "High", "VeryHigh" ] }
+    },
+    {
+      "id": "M6",
+      "description": "Phoenix is the hub most exposed to extreme heat",
+      "url": "/api/risk/rankings?hazard=Heat",
+      "path": "entries[0].hubId",
+      "expect": { "equalTo": "phoenix" }
+    },
+    {
+      "id": "M7",
+      "description": "Hurricanes don't apply to Denver (FEMA not applicable → 0)",
+      "url": "/api/hubs/denver/risk",
+      "path": "hazards[hazard=Hurricane].score",
+      "expect": { "equalTo": "0" }
+    },
+    {
+      "id": "M8",
+      "description": "Seattle is among the three least exposed hubs overall",
+      "url": "/api/risk/rankings",
+      "path": "entries[hubId=seattle].rank",
+      "expect": { "atLeast": 13 }
+    },
+    {
+      "id": "M9",
+      "description": "Every hub is scored with High data confidence (complete weather + FEMA data)",
+      "url": "/api/risk/rankings",
+      "path": "entries[*].confidence",
+      "expect": { "allEqual": "High" }
+    }
+  ],
+  "agentCases": [
+    {
+      "id": "A1",
+      "question": "Which hubs in the Midwest are most exposed to winter disruption?",
+      "purpose": "Brief question 1: regional hazard ranking",
+      "checks": [
+        { "type": "intent", "anyOf": [ "Ranking" ] },
+        { "type": "toolCalled", "tool": "rank_hubs", "args": { "region": "Midwest", "hazard": "Winter" } },
+        { "type": "mentionsTopRanked", "query": "region=Midwest&hazard=Winter", "count": 3 },
+        { "type": "grounded", "count": 1 }
+      ]
+    },
+    {
+      "id": "A2",
+      "question": "Compare Miami and Houston in terms of hurricane and flood exposure.",
+      "purpose": "Brief question 2: two-hub, two-hazard comparison",
+      "checks": [
+        { "type": "intent", "anyOf": [ "Comparison" ] },
+        { "type": "toolCalled", "tool": "compare_hubs", "args": { "hubIds": [ "miami", "houston" ] } },
+        { "type": "mentionsHubs", "hubs": [ "Miami", "Houston" ] },
+        { "type": "citesApiValue", "url": "/api/risk/compare?hubs=miami,houston", "path": "rows[metric=Hurricane].values[hubId=miami].score" },
+        { "type": "citesApiValue", "url": "/api/risk/compare?hubs=miami,houston", "path": "rows[metric=Flood].values[hubId=houston].score" },
+        { "type": "grounded", "count": 2 }
+      ]
+    },
+    {
+      "id": "A3",
+      "question": "What percentage of days in Denver last year had snowfall?",
+      "purpose": "Brief question 3: weather statistic for 'last year'",
+      "checks": [
+        { "type": "intent", "anyOf": [ "WeatherStatistics" ] },
+        { "type": "toolCalled", "tool": "get_weather_statistics", "args": { "hubId": "denver" } },
+        { "type": "citesApiValue", "url": "/api/hubs/denver/weather", "path": "disruptionDays[metric=snowDays].percentOfDays" },
+        { "type": "grounded" }
+      ]
+    },
+    {
+      "id": "A4",
+      "question": "Why is the Dallas hub's weather disruption risk high?",
+      "purpose": "Brief question 4: explanation from drivers and evidence",
+      "checks": [
+        { "type": "intent", "anyOf": [ "HubRisk" ] },
+        { "type": "toolCalled", "tool": "get_hub_risk", "args": { "hubId": "dallas" } },
+        { "type": "mentionsApiText", "url": "/api/hubs/dallas/risk", "path": "topDrivers[0]" },
+        { "type": "citesApiValue", "url": "/api/hubs/dallas/risk", "path": "compositeScore" },
+        { "type": "grounded", "count": 1 }
+      ]
+    },
+    {
+      "id": "A5",
+      "followUpOf": "A4",
+      "question": "How does it compare with Houston on those drivers?",
+      "purpose": "Follow-up: 'it' and 'those drivers' must resolve from conversation memory",
+      "checks": [
+        { "type": "toolCalled", "tool": "compare_hubs", "args": { "hubIds": [ "dallas", "houston" ] } },
+        { "type": "mentionsHubs", "hubs": [ "Dallas", "Houston" ] },
+        { "type": "grounded", "count": 1 }
+      ]
+    },
+    {
+      "id": "A6",
+      "question": "Why is the Seattle hub's weather risk so high?",
+      "purpose": "False premise: Seattle is the least exposed hub — the agent should say so, not agree",
+      "checks": [
+        { "type": "intent", "anyOf": [ "HubRisk" ] },
+        { "type": "toolCalled", "tool": "get_hub_risk", "args": { "hubId": "seattle" } },
+        { "type": "mentionsApiText", "url": "/api/hubs/seattle/risk", "path": "rating" },
+        { "type": "grounded" }
+      ]
+    },
+    {
+      "id": "A7",
+      "question": "What's the capital of France?",
+      "purpose": "Out of scope: decline politely without calling tools",
+      "checks": [
+        { "type": "intent", "anyOf": [ "OutOfScope" ] },
+        { "type": "noToolCalls" }
+      ]
+    },
+    {
+      "id": "A8",
+      "question": "How is the risk score calculated?",
+      "purpose": "Methodology: explain the deterministic model from the model-description tool",
+      "checks": [
+        { "type": "intent", "anyOf": [ "Methodology" ] },
+        { "type": "toolCalled", "tool": "describe_risk_model" },
+        { "type": "mentionsText", "anyOf": [ "FEMA" ] },
+        { "type": "mentionsText", "anyOf": [ "worst", "highest hazard", "maximum" ] }
+      ]
+    },
+    {
+      "id": "A9",
+      "question": "Which three hubs should we prioritize for resilience investment?",
+      "purpose": "Overall prioritization: composite ranking, top 3",
+      "checks": [
+        { "type": "intent", "anyOf": [ "Ranking" ] },
+        { "type": "toolCalled", "tool": "rank_hubs" },
+        { "type": "mentionsTopRanked", "query": "top=3", "count": 3 },
+        { "type": "grounded", "count": 3 }
+      ]
+    },
+    {
+      "id": "A10",
+      "question": "What is the flood risk of the Boston hub?",
+      "purpose": "Unknown hub: must not invent data for a hub that doesn't exist",
+      "checks": [
+        { "type": "mentionsText", "anyOf": [ "not one of", "isn't one of", "not a hub", "no hub", "not in", "does not", "doesn't", "don't have", "do not have", "not part of", "not among", "no data", "not track" ] },
+        { "type": "grounded" }
+      ]
+    },
+    {
+      "id": "A11",
+      "question": "Which hub is most exposed to extreme heat?",
+      "purpose": "Single-hazard ranking across all regions",
+      "checks": [
+        { "type": "toolCalled", "tool": "rank_hubs", "args": { "hazard": "Heat" } },
+        { "type": "mentionsTopRanked", "query": "hazard=Heat", "count": 1 },
+        { "type": "grounded", "count": 1 }
+      ]
+    },
+    {
+      "id": "A12",
+      "question": "Is the Denver hub exposed to hurricanes?",
+      "purpose": "Not-applicable hazard: should explain hurricanes don't apply (score 0)",
+      "checks": [
+        { "type": "toolCalled", "tool": "get_hub_risk", "args": { "hubId": "denver" } },
+        { "type": "mentionsText", "anyOf": [ "not applicable", "no hurricane", "not exposed", "isn't exposed", "negligible", "score of 0", "score 0", "zero" ] },
+        { "type": "grounded" }
+      ]
+    },
+    {
+      "id": "A13",
+      "question": "How many heavy-rain days did the Houston hub have in 2024?",
+      "purpose": "Explicit period: tool arguments must carry the date range; count must match",
+      "checks": [
+        { "type": "toolCalled", "tool": "get_weather_statistics", "args": { "hubId": "houston", "from": "2024-01-01", "to": "2024-12-31" } },
+        { "type": "citesApiValue", "url": "/api/hubs/houston/weather?from=2024-01-01&to=2024-12-31", "path": "disruptionDays[metric=heavyRainDays].days", "tolerance": 0 },
+        { "type": "grounded" }
+      ]
+    }
+  ]
+}

@@ -97,6 +97,7 @@ src/
     Agent/                       ChatAgent loop, AgentAnswer contract, AnswerValidator, prompt, memory port
       Llm/                       ILlmClient port (provider-neutral messages, tools, completions)
       Tools/                     AgentTool<TArgs> base + 6 tools over HubRiskService
+  WeatherRisk.Eval/              Black-box evaluation runner (HTTP only) + eval-cases.json
   WeatherRisk.Data/              EF Core/SQLite persistence + external API clients
     Persistence/
       Entities/                  EF entities (one per table)
@@ -113,7 +114,9 @@ tests/
   WeatherRisk.Api.Tests/         Endpoint tests (WebApplicationFactory, temp SQLite file) + Api unit tests
   WeatherRisk.Core.Tests/        Golden-value unit tests for statistics, scorers, engine, ranking
   WeatherRisk.Data.Tests/        Repository + schema tests on in-memory SQLite with real migrations
+  WeatherRisk.Eval.Tests/        JSON path, check evaluators, suite validation, report (canned JSON)
   ui/                            Node built-in test runner tests for the UI's pure JS (markdown, format)
+docs/evaluation/                 Latest committed evaluation report (Markdown + JSON)
 docs/images/                     UI screenshots
 dotnet-tools.json                Local tools (dotnet-ef) — `dotnet tool restore`
 .editorconfig                    Formatting; exempts generated migrations from the XML-doc rule
@@ -474,7 +477,44 @@ calls — found when a cold fetch of all 15 hubs got 429s for the last 3.
 checks; `/api/chat` has its own stricter rate limit (default 10/min per client) on top of the global one.
 
 ## 9. Evaluation
-*TBD (task 9).*
+
+`src/WeatherRisk.Eval` is a **black-box** console runner: it talks to the running API over HTTP/JSON only (no
+project references), so it evaluates the system exactly as analysts and the chat UI use it. The suite lives
+in `eval-cases.json` (data, not code) and has two layers:
+
+| Layer | What it checks | LLM? |
+|---|---|---|
+| **Model checks** (9) | Expert expectations about the deterministic model via REST: Minneapolis leads Midwest winter; Miami > Houston on hurricanes; Houston > Miami on floods; Denver snow share plausible; Dallas High; Phoenix leads heat; hurricanes not applicable in Denver; Seattle in the bottom 3; all hubs High confidence | No |
+| **Agent cases** (13) | The 4 brief questions + follow-up with pronouns, false premise (Seattle "so high"), out-of-scope, methodology, top-3 prioritization, unknown hub (Boston), single-hazard ranking, not-applicable hazard, explicit date range | Yes |
+
+**Agent check types:** `intent` · `toolCalled` (+ argument subset, arrays as sets) · `noToolCalls` · `grounded`
+(all findings verified, minimum count) · `mentionsHubs` · `mentionsTopRanked` · `citesApiValue` ·
+`mentionsApiText` · `mentionsText`. **Expected values are resolved from the deterministic API at run time**
+(e.g. "the top 3 of `/api/risk/rankings?region=Midwest&hazard=Winter`"), so the suite doesn't go stale when
+data refreshes — it tests that the agent faithfully reports what the model says.
+
+Run: `dotnet run --project src/WeatherRisk.Eval` (API must be running) → `eval-results/eval-report.{md,json}`;
+`--skip-agent` runs only model checks (no key needed). Exit code 0/1/2 = pass/fail/setup error.
+
+### Results (committed: [`docs/evaluation/eval-report.md`](evaluation/eval-report.md))
+| Run | Model checks | Agent cases | Agent checks | Latency avg / p95 | Notes |
+|---|---|---|---|---|---|
+| 1 | 9/9 | 11/13 | 43/45 | 3.2 / 4.9 s | A11 → 503 (all models rate-limited, 12 fallbacks); A9 "missing New Orleans" |
+| 2 | 9/9 | 12/13 | 46/47 | 2.9 / 4.5 s | A10 "unknown hub" phrase not matched |
+| **3 (final)** | **9/9** | **13/13** | **47/47** | **3.9 / 5.9 s** | 5 fallbacks absorbed by the chain |
+
+What the failures taught us — and which side was fixed:
+- **Evaluator bugs (2):** the model writes `New Orleans` (narrow no-break space), `heavy‑rain` and
+  `don’t`; text checks now normalize Unicode spaces, dashes and apostrophes. The Boston answer ("we don’t
+  have a Boston hub") was correct; the phrase list was too narrow.
+- **Agent issue (1):** the fallback model appended *Assumptions / Follow-up questions / Intent* sections to the
+  answer text, duplicating structured fields in the UI → deterministic `AnswerCleaner` strips such trailing
+  label sections (no extra LLM call).
+- **Capacity (1):** 13 questions 12 s apart exceeded the free per-model token quotas → default pacing 20 s.
+  Under real human pacing this doesn't occur; under bursts the API degrades to a clear 503 with a hint.
+
+LLM answers are non-deterministic: individual runs can differ (e.g. which model answers after a fallback);
+the deterministic layer and grounding checks are stable.
 
 ## 10. Design decisions
 | Decision | Rationale |
@@ -516,6 +556,8 @@ checks; `/api/chat` has its own stricter rate limit (default 10/min per client) 
 | Grounding check on cited numbers | Cheap, deterministic guard against the LLM's main failure mode (plausible invented numbers). |
 | Model × provider fallback chain | Free tiers rate-limit per model; spreading load over models keeps the chat available. |
 | In-memory conversation store behind an interface | Zero setup for a single-instance demo; persistence is a one-class swap. |
+| Black-box eval over HTTP, cases as JSON | Evaluates the real deployed behaviour; cases editable without code; ground truth resolved live from the deterministic API. |
+| Deterministic `AnswerCleaner` over a model "rewrite" request | Removes duplicated sections without an extra LLM call under tight quotas; conservative label matching, tested. |
 | Vanilla HTML/CSS/ES modules for the UI | One page, no build tooling or dependencies to install; served by the same process; easy to read. |
 | Own Markdown renderer (escape-first) | ~80 lines covering what the assistant writes; no third-party script, and XSS-safe by construction (tested). |
 | Browser Web Speech API for voice | Free, no server-side audio pipeline; graceful hiding where unsupported (e.g. Firefox). |

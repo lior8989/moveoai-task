@@ -128,6 +128,22 @@ public sealed class ChatAgentTests
     }
 
     [Fact]
+    public async Task AskAsync_AnswerWithDuplicatedSections_IsCleanedBeforeReturnAndStorage()
+    {
+        string duplicated = Answer().Replace(
+            "\"Minneapolis is most exposed.\"", "\"Minneapolis is most exposed.\\n\\n**Assumptions**\\n- Uncalibrated weights\"");
+        var llm = new ScriptedLlm((_, step) => step == 1
+            ? Calls(RankMidwestWinter)
+            : Calls(new LlmToolCall("s", AgentPrompt.SubmitAnswerTool, duplicated)));
+
+        ChatResult result = await CreateAgent(llm).AskAsync("q", null, Ct);
+
+        Assert.Equal("Minneapolis is most exposed.", result.Answer.Answer);
+        Assert.Equal("Minneapolis is most exposed.", (await _store.GetAsync(result.ConversationId, Ct)).Single().AssistantAnswer);
+        Assert.Equal(["Uncalibrated weights"], result.Answer.Assumptions); // Structured field keeps the content.
+    }
+
+    [Fact]
     public async Task AskAsync_ProseInsteadOfToolCall_IsNudgedToSubmitAnswer()
     {
         var llm = new ScriptedLlm((req, step) => step switch
