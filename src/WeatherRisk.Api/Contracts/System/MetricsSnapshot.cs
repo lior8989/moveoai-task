@@ -9,7 +9,36 @@ public sealed record MetricsSnapshot(
     DateTimeOffset GeneratedAt,
     double UptimeSeconds,
     EndpointMetrics Overall,
-    IReadOnlyList<EndpointMetrics> Endpoints);
+    IReadOnlyList<EndpointMetrics> Endpoints)
+{
+    /// <summary>Per external dependency (Open-Meteo, FEMA NRI, LLM…): calls, failures, fallbacks, latency.</summary>
+    public IReadOnlyList<DependencyMetrics> Dependencies { get; init; } = [];
+}
+
+/// <summary>Metrics for one external dependency.</summary>
+/// <param name="Dependency">Dependency name, e.g. <c>open-meteo</c>.</param>
+/// <param name="Calls">Logical calls since startup (each may include retries).</param>
+/// <param name="Succeeded">Calls that returned a success status.</param>
+/// <param name="Failed">Calls that failed after retries (error status, timeout, open circuit, network error).</param>
+/// <param name="FallbacksServed">Times cached (or no) data was served because the dependency failed.</param>
+/// <param name="AvgLatencyMs">Mean call duration over recent calls, ms (includes retries).</param>
+/// <param name="P95LatencyMs">95th-percentile call duration over recent calls, ms.</param>
+/// <param name="LastCallSucceeded">Outcome of the most recent call; null when never called.</param>
+/// <param name="LastSuccessAt">Time of the most recent success (UTC).</param>
+/// <param name="LastFailureAt">Time of the most recent failure (UTC).</param>
+/// <param name="LastError">Short description of the most recent failure.</param>
+public sealed record DependencyMetrics(
+    string Dependency,
+    long Calls,
+    long Succeeded,
+    long Failed,
+    long FallbacksServed,
+    double AvgLatencyMs,
+    double P95LatencyMs,
+    bool? LastCallSucceeded,
+    DateTimeOffset? LastSuccessAt,
+    DateTimeOffset? LastFailureAt,
+    string? LastError);
 
 /// <summary>Traffic, outcome and latency metrics for one endpoint (or all traffic).</summary>
 /// <param name="Endpoint">HTTP method + route template, e.g. <c>GET /api/system/health</c>; <c>ALL</c> for the aggregate; <c>(unmatched)</c> for unknown routes.</param>

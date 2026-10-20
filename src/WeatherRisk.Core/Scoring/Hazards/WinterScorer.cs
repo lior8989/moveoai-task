@@ -50,6 +50,10 @@ public sealed class WinterScorer : IHazardScorer
             AddIfPresent(factors, "Winter Weather", baseline.WinterWeather);
             AddIfPresent(factors, "Ice Storm", baseline.IceStorm);
             AddIfPresent(factors, "Cold Wave", baseline.ColdWave);
+            if (nri is null)
+            {
+                return HazardMath.NotApplicable(Hazard, factors);
+            }
         }
 
         return HazardMath.Build(Hazard, observed, nri, _settings.ObservedWeight, factors);

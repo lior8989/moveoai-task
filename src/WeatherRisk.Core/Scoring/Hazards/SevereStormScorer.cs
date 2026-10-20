@@ -24,7 +24,7 @@ public sealed class SevereStormScorer : IHazardScorer
     /// <inheritdoc />
     public HazardScore Score(WeatherSummary? weather, HazardBaseline? baseline) =>
         HazardMath.ScoreSingleMetric(
-            Hazard, _settings, weather, static w => w.DamagingGustDays,
+            Hazard, _settings, weather, baseline is not null, static w => w.DamagingGustDays,
             "damagingGustDaysPerYear", _metricDescription,
             ("Tornado", baseline?.Tornado),
             ("Hail", baseline?.Hail),

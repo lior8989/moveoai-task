@@ -7,12 +7,13 @@ namespace WeatherRisk.Data.Persistence.Configurations;
 /// <summary>Schema for <c>HazardBaselines</c> — cached FEMA National Risk Index scores.</summary>
 internal sealed class HazardBaselineConfiguration : IEntityTypeConfiguration<HazardBaselineEntity>
 {
-    private const string ScoreComment = "risk score: national percentile 0-100 (null = not rated).";
+    private const string ScoreComment = "annualized frequency as national percentile among US counties, 0-100 (null = not applicable).";
 
     /// <inheritdoc />
     public void Configure(EntityTypeBuilder<HazardBaselineEntity> builder)
     {
-        builder.ToTable("HazardBaselines", t => t.HasComment("Cached FEMA National Risk Index hazard scores per county."));
+        builder.ToTable("HazardBaselines", t => t.HasComment(
+            "Cached FEMA National Risk Index baselines per county: hazard frequency percentiles vs all US counties."));
 
         // Keyed by county, not hub: NRI is county-level and several hubs could share a county.
         builder.HasKey(b => b.CountyFips);
@@ -22,7 +23,7 @@ internal sealed class HazardBaselineConfiguration : IEntityTypeConfiguration<Haz
         builder.Property(b => b.IceStorm).HasComment($"NRI Ice Storm {ScoreComment}");
         builder.Property(b => b.ColdWave).HasComment($"NRI Cold Wave {ScoreComment}");
         builder.Property(b => b.Hurricane).HasComment($"NRI Hurricane {ScoreComment}");
-        builder.Property(b => b.RiverineFlooding).HasComment($"NRI Riverine Flooding {ScoreComment}");
+        builder.Property(b => b.RiverineFlooding).HasComment($"NRI Inland (riverine) Flooding {ScoreComment}");
         builder.Property(b => b.CoastalFlooding).HasComment($"NRI Coastal Flooding {ScoreComment}");
         builder.Property(b => b.Tornado).HasComment($"NRI Tornado {ScoreComment}");
         builder.Property(b => b.Hail).HasComment($"NRI Hail {ScoreComment}");

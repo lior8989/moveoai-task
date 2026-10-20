@@ -63,18 +63,53 @@ public sealed class HazardScorerTests
     // ---------- Hurricane ----------
 
     [Fact]
-    public void Hurricane_BothSignals_BaselineDominates()
+    public void Hurricane_BothSignals_UsesBaselineOnlyButKeepsGustEvidence()
     {
         var scorer = new HurricaneScorer(Settings, Thresholds);
 
-        // 4 days → 1/yr → 1/3 = 33.33.  Score = 0.25×33.33 + 0.75×90 = 75.83 → 75.8 → Very High.
+        // Observed weight 0 → score = baseline 90. Gust days (1/yr → 33.3) remain visible as evidence.
         HazardScore s = scorer.Score(TestData.Weather(tropicalGust: 4), TestData.Baseline(hurricane: 90));
 
         Assert.Equal(33.3, s.ObservedScore);
-        Assert.Equal(75.8, s.Score);
+        Assert.Equal(90.0, s.Score);
         Assert.Equal(RiskRating.VeryHigh, s.Rating);
         Assert.Contains(s.Factors, f => f is { Name: "tropicalStormGustDaysPerYear", Value: 1.0 });
         Assert.Contains(s.Factors, f => f is { Name: "nriHurricane", Value: 90.0 });
+    }
+
+    [Fact]
+    public void Hurricane_BaselineUnavailable_FallsBackToObservedProxy()
+    {
+        var scorer = new HurricaneScorer(Settings, Thresholds);
+
+        HazardScore s = scorer.Score(TestData.Weather(tropicalGust: 4), baseline: null);
+
+        Assert.Equal(33.3, s.Score);
+    }
+
+    [Fact]
+    public void Hurricane_FemaRatesNotApplicable_ScoresZeroDespiteGustyWeather()
+    {
+        // Denver: frequent ≥90 km/h downslope gusts, but FEMA rates hurricanes not applicable.
+        var scorer = new HurricaneScorer(Settings, Thresholds);
+
+        HazardScore s = scorer.Score(TestData.Weather(tropicalGust: 40), TestData.Baseline(winterWeather: 80));
+
+        Assert.Equal(0, s.Score);
+        Assert.Equal(RiskRating.Low, s.Rating);
+        Assert.Contains(s.Factors, f => f.Name == "notApplicable");
+        Assert.Contains(s.Factors, f => f.Name == "tropicalStormGustDaysPerYear"); // Evidence kept.
+    }
+
+    [Fact]
+    public void Winter_FemaRatesAllComponentsNotApplicable_ScoresZero()
+    {
+        var scorer = new WinterScorer(Settings, Thresholds);
+
+        HazardScore s = scorer.Score(TestData.Weather(snow: 80), TestData.Baseline(hurricane: 50));
+
+        Assert.Equal(0, s.Score);
+        Assert.Contains(s.Factors, f => f.Name == "notApplicable");
     }
 
     // ---------- Flood ----------

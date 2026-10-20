@@ -1,8 +1,10 @@
+using WeatherRisk.Api.Background;
 using WeatherRisk.Api.Endpoints;
 using WeatherRisk.Api.Observability;
 using WeatherRisk.Api.Persistence;
 using WeatherRisk.Api.RateLimiting;
 using WeatherRisk.Data;
+using WeatherRisk.Data.External;
 using WeatherRisk.Data.Persistence;
 
 // Composition root: service registration and HTTP pipeline. Feature wiring lives in extension methods.
@@ -18,7 +20,13 @@ builder.Services.AddOpenApi();
 builder.Services.AddObservability(builder.Configuration);
 builder.Services.AddApiRateLimiting(builder.Configuration);
 builder.Services.AddWeatherRiskPersistence(connectionString);
-builder.Services.AddHealthChecks().AddDbContextCheck<WeatherRiskDbContext>("database");
+builder.Services.AddWeatherRiskDataSources(
+    builder.Configuration.GetSection(HubDataSettings.SectionName),
+    (dependency, client) => client.AddDependencyMetrics(dependency));
+builder.Services.AddHealthChecks()
+    .AddDbContextCheck<WeatherRiskDbContext>("database")
+    .AddDependencyChecks(DependencyNames.DataSources);
+builder.Services.AddHostedService<DataWarmupService>();
 
 var app = builder.Build();
 

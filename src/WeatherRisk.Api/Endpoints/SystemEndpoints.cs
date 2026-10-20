@@ -28,10 +28,11 @@ public static class SystemEndpoints
 
         group.MapGet("/metrics", GetMetrics)
             .WithName("GetMetrics")
-            .WithSummary("API request metrics")
+            .WithSummary("API request and dependency metrics")
             .WithDescription(
                 "Per-endpoint and overall request counts (succeeded, client errors, server errors, rate-limited), " +
-                "requests in the recent window (load), and latency avg/p95/max (bottlenecks). In-memory; resets on restart.");
+                "requests in the recent window (load), and latency avg/p95/max (bottlenecks); plus per external " +
+                "dependency: calls, failures, fallbacks served, latency and last outcome. In-memory; resets on restart.");
 
         group.MapGet("/schema", GetSchema)
             .WithName("GetDatabaseSchema")
@@ -75,9 +76,10 @@ public static class SystemEndpoints
         return TypedResults.Json(response, statusCode: statusCode);
     }
 
-    /// <summary>Returns a snapshot of request metrics.</summary>
-    /// <param name="collector">Metrics store.</param>
+    /// <summary>Returns a snapshot of request and dependency metrics.</summary>
+    /// <param name="requests">Request metrics store.</param>
+    /// <param name="dependencies">Dependency metrics store.</param>
     /// <returns>200 with the current metrics snapshot.</returns>
-    internal static Ok<MetricsSnapshot> GetMetrics(RequestMetricsCollector collector) =>
-        TypedResults.Ok(collector.GetSnapshot());
+    internal static Ok<MetricsSnapshot> GetMetrics(RequestMetricsCollector requests, DependencyMetricsCollector dependencies) =>
+        TypedResults.Ok(requests.GetSnapshot() with { Dependencies = dependencies.GetSnapshot() });
 }
