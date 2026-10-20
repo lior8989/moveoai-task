@@ -55,11 +55,20 @@ src/
     Scoring/                     Engine, settings, results, IHazardScorer
       Hazards/                   One scorer per hazard + shared HazardMath
     Ranking/                     HubRanker (rank + compare)
+    Abstractions/                Repository interfaces (ports) implemented by Data
   WeatherRisk.Data/              EF Core/SQLite persistence + external API clients
+    Persistence/
+      Entities/                  EF entities (one per table)
+      Configurations/            Fluent schema config incl. comments, keys, indexes
+      Repositories/              Repository implementations (internal)
+      Seed/HubCatalog.cs         The 15 hubs
+      Migrations/                Generated EF migrations
 tests/
-  WeatherRisk.Api.Tests/         Endpoint tests (WebApplicationFactory) + Api unit tests
+  WeatherRisk.Api.Tests/         Endpoint tests (WebApplicationFactory, temp SQLite file) + Api unit tests
   WeatherRisk.Core.Tests/        Golden-value unit tests for statistics, scorers, engine, ranking
-  (WeatherRisk.Data.Tests is added with its first code in task 4)
+  WeatherRisk.Data.Tests/        Repository + schema tests on in-memory SQLite with real migrations
+dotnet-tools.json                Local tools (dotnet-ef) — `dotnet tool restore`
+.editorconfig                    Formatting; exempts generated migrations from the XML-doc rule
 docs/                            Architecture, plan, session transcript
 .claude/skills/                  Engineering standards the AI agent must follow
 ```
@@ -70,8 +79,82 @@ docs/                            Architecture, plan, session transcript
 - Zero install, runs on a laptop, file can ship with the demo; real SQL with indexes and transactions.
 - Data volume is small (15 hubs × a few years of daily aggregates, cached API payloads, score history).
 - Swap path: EF Core makes moving to PostgreSQL a provider/connection-string change.
+- File: `src/WeatherRisk.Api/App_Data/weatherrisk.db` (git-ignored). Created and migrated automatically on
+  startup; safe to delete — it is a cache plus score history and will be rebuilt.
+- **WAL mode** is enabled so the background scorer (task 10) can write while API requests read.
 
-*Schema & ER diagram: TBD (task 4).*
+### Schema
+Live description (columns, types, keys, indexes, comments): **`GET /api/system/schema`** — generated at
+runtime from the EF Core model, so it cannot drift from the code. Every table and column carries a comment
+(enforced by a unit test).
+
+```mermaid
+erDiagram
+    Hubs ||--o{ DailyWeather : "has (cascade)"
+    Hubs ||--o| WeatherSync : "has (cascade)"
+    Hubs ||--o{ RiskScoreSnapshots : "has (cascade)"
+    Hubs }o..o| HazardBaselines : "CountyFips (logical, no FK)"
+
+    Hubs {
+        TEXT Id PK "lower-case id, e.g. dallas"
+        TEXT Name
+        TEXT City
+        TEXT State
+        TEXT Region "Midwest | South | West | Northeast (indexed)"
+        REAL Latitude
+        REAL Longitude
+        TEXT CountyFips "FEMA NRI lookup key"
+    }
+    DailyWeather {
+        TEXT HubId PK, FK
+        TEXT Date PK
+        REAL SnowfallCm
+        REAL PrecipitationMm
+        REAL MaxWindGustKmh
+        REAL MaxTemperatureC
+        REAL MinTemperatureC
+    }
+    WeatherSync {
+        TEXT HubId PK, FK
+        TEXT CoveredFrom
+        TEXT CoveredTo
+        INTEGER SyncedAt "UTC"
+    }
+    HazardBaselines {
+        TEXT CountyFips PK
+        REAL WinterWeather "... 10 NRI hazard scores, 0-100"
+        INTEGER FetchedAt "UTC"
+    }
+    RiskScoreSnapshots {
+        INTEGER Id PK "insertion order = chronology"
+        TEXT HubId FK "index (HubId, Id)"
+        INTEGER ComputedAt "UTC"
+        REAL CompositeScore
+        TEXT Rating
+        TEXT Confidence
+        REAL WinterScore "... one column per hazard"
+    }
+```
+
+| Table | Role | Write pattern |
+|---|---|---|
+| `Hubs` | Reference data, seeded by the initial migration from `HubCatalog` | Migration only |
+| `DailyWeather` | Cache of Open-Meteo daily rows (~1,830 per hub for 5 years) | Atomic range replace (set-based delete + batched insert in one transaction) |
+| `WeatherSync` | Cache freshness: period + fetch time per hub | Written in the same transaction as `DailyWeather` |
+| `HazardBaselines` | Cache of FEMA NRI scores per county | Upsert |
+| `RiskScoreSnapshots` | Append-only score history for trends and change alerts | Batched append |
+
+### Data access design
+- **Repository pattern with ports in Core:** `IHubRepository`, `IWeatherRepository`,
+  `IHazardBaselineRepository`, `IRiskScoreHistoryRepository` are defined in `WeatherRisk.Core/Abstractions`
+  and implemented (internally) in `WeatherRisk.Data` — Core never references EF (Dependency Inversion).
+  Small, separate interfaces (Interface Segregation) rather than one generic repository.
+- **Entities ≠ domain models:** EF entities live in Data and are mapped to Core records; neither is exposed
+  over the API (API contracts are separate records).
+- **Performance:** pooled `DbContext`; `AsNoTracking` + projection for reads; composite PK `(HubId, Date)`
+  serves the range query; `(HubId, Id)` index serves latest/history; change tracker cleared after bulk writes.
+- **Migrations** (EF Core, `dotnet-ef` as a local repo tool) are applied at startup; a unit test fails if the
+  model changes without a new migration.
 
 ## 5. Data sources
 | Source | Used for | Auth |
@@ -200,6 +283,11 @@ load, which is exactly when they're needed. Rejections: `429` + `Retry-After` + 
 | Five small scorer classes over one generic configurable scorer | Each hazard's logic is readable on its own; shared math lives in `HazardMath`, so duplication stays minimal. |
 | `HubRanker` as static pure functions | No state, no dependencies, nothing to substitute — an interface would add ceremony without benefit. |
 | `DailyWeather` as `readonly record struct` | ~1,800 rows per hub are aggregated per scoring; value type avoids per-row heap allocations. |
+| Structured weather cache (rows) instead of raw JSON blobs | Range queries in SQL, no re-parsing, small footprint; freshness tracked separately in `WeatherSync`. |
+| Baselines keyed by county, not hub | NRI is county-level; hubs sharing a county share one fetch. |
+| "Latest snapshot" by auto-increment id | Insertion order is chronological; integer index is cheaper and more reliable than timestamp ordering in SQLite. |
+| Schema endpoint generated from the EF model | Documentation that cannot drift from the real schema. |
+| Migrations applied at startup | Zero manual setup for reviewers; acceptable for a single-instance app. |
 | Rate limit partitioned by client IP | Simple and fair for a demo; assumes no reverse proxy (would need forwarded headers). |
 
 ## 11. Assumptions & uncertainty
@@ -213,3 +301,4 @@ load, which is exactly when they're needed. Rejections: `429` + `Retry-After` + 
 - FEMA NRI is county-level and reflects national percentiles of *risk* (includes exposure/vulnerability of the
   county, not of our facility).
 - 5 years of observations is short for rare hazards; the baseline compensates but uncertainty remains.
+- Hub locations are city centres of real US cities standing in for the company's (unknown) hub sites.

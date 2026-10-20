@@ -2,10 +2,12 @@ using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using WeatherRisk.Api.Contracts.System;
 using WeatherRisk.Api.Observability;
+using WeatherRisk.Api.Persistence;
+using WeatherRisk.Data.Persistence;
 
 namespace WeatherRisk.Api.Endpoints;
 
-/// <summary>Operational endpoints under <c>/api/system</c>: health and request metrics. Exempt from rate limiting.</summary>
+/// <summary>Operational endpoints under <c>/api/system</c>: health, request metrics, database schema. Exempt from rate limiting.</summary>
 public static class SystemEndpoints
 {
     /// <summary>Maps the <c>/api/system</c> endpoint group.</summary>
@@ -31,8 +33,21 @@ public static class SystemEndpoints
                 "Per-endpoint and overall request counts (succeeded, client errors, server errors, rate-limited), " +
                 "requests in the recent window (load), and latency avg/p95/max (bottlenecks). In-memory; resets on restart.");
 
+        group.MapGet("/schema", GetSchema)
+            .WithName("GetDatabaseSchema")
+            .WithSummary("Database schema")
+            .WithDescription(
+                "Tables, columns (type, nullability, primary key, meaning/unit), indexes and foreign keys — " +
+                "generated at runtime from the EF Core model, so it always matches the deployed code.");
+
         return app;
     }
+
+    /// <summary>Describes the database schema from the EF Core model.</summary>
+    /// <param name="db">Database context.</param>
+    /// <returns>200 with the schema description.</returns>
+    internal static Ok<DatabaseSchemaResponse> GetSchema(WeatherRiskDbContext db) =>
+        TypedResults.Ok(DatabaseSchemaDescriber.Describe(db));
 
     /// <summary>Runs all health checks and reports the worst status.</summary>
     /// <param name="healthChecks">ASP.NET Core health-check service.</param>

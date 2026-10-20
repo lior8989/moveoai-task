@@ -24,6 +24,17 @@ Then open:
 | http://localhost:5050/openapi/v1.json | OpenAPI document |
 | http://localhost:5050/api/system/health | Health check |
 | http://localhost:5050/api/system/metrics | Request metrics (counts, failures, rate-limited, latency) |
+| http://localhost:5050/api/system/schema | Database schema (tables, columns, keys, comments) |
+
+### Database
+SQLite, created and migrated automatically on first start at `src/WeatherRisk.Api/App_Data/weatherrisk.db`
+(15 hubs seeded). No setup needed. To reset, stop the app and delete the `App_Data` folder.
+
+For schema changes (developers):
+```powershell
+dotnet tool restore
+dotnet ef migrations add <Name> --project src/WeatherRisk.Data --output-dir Persistence/Migrations
+```
 
 ### Visual Studio 2026
 Open `WeatherRisk.slnx`, set **WeatherRisk.Api** as the startup project, choose the **http** profile, press F5.
@@ -33,6 +44,7 @@ The browser opens Swagger.
 `src/WeatherRisk.Api/appsettings.json`:
 | Section | Setting | Default | Meaning |
 |---|---|---|---|
+| `ConnectionStrings` | `WeatherRisk` | `Data Source=App_Data/weatherrisk.db` | SQLite file (relative paths resolve under the Api project) |
 | `Monitoring` | `WindowSeconds` | 60 | Window for "requests in window" metric |
 | | `LatencySampleSize` | 512 | Recent requests per endpoint used for avg/p95/max latency |
 | `RateLimiting:Global` | `PermitLimit` / `WindowSeconds` / `SegmentsPerWindow` | 120 / 60 / 6 | Per-client sliding window for `/api/*` (except `/api/system/*`) |
@@ -41,4 +53,5 @@ The browser opens Swagger.
 ```powershell
 dotnet test
 ```
-Runs unit tests and endpoint tests (the full HTTP pipeline in memory — no network access needed).
+Runs unit tests, repository tests (in-memory SQLite with the real migrations) and endpoint tests (the full
+HTTP pipeline in memory with a temporary database) — no network access needed.

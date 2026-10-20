@@ -6,4 +6,17 @@
     <ProjectReference Include="..\WeatherRisk.Core\WeatherRisk.Core.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- Repositories are internal (consumers use Core interfaces); tests exercise them directly. -->
+    <InternalsVisibleTo Include="WeatherRisk.Data.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" />
+  </ItemGroup>
+
 </Project>
