@@ -1,17 +1,17 @@
 using System.Globalization;
-using WeatherRisk.Api.Contracts.Risk;
 using WeatherRisk.Core.Abstractions;
 using WeatherRisk.Core.Domain;
 using WeatherRisk.Core.Scoring;
 using WeatherRisk.Core.Weather;
 
-namespace WeatherRisk.Api.Risk;
+namespace WeatherRisk.Core.Application;
 
 /// <summary>
 /// Describes the configured risk model in plain terms (weights, thresholds, signals, bands, assumptions).
 /// Built from the live settings, so the description can't drift from what the engine actually does.
-/// Singleton; building the description is a handful of string operations, so it is done per call.
+/// Used by the REST API (<c>/api/risk/model</c>) and by the agent's <c>describe_risk_model</c> tool.
 /// </summary>
+/// <remarks>Singleton; building the description is a handful of string operations, so it is done per call.</remarks>
 public sealed class RiskModelDescriber
 {
     private readonly ScoringSettings _scoring;
@@ -29,13 +29,13 @@ public sealed class RiskModelDescriber
     /// <summary>Builds the description.</summary>
     /// <param name="window">Current observed-weather window.</param>
     /// <returns>Model description.</returns>
-    public RiskModelResponse Describe(DataWindow window)
+    public RiskModelDescription Describe(DataWindow window)
     {
         double totalWeight = Enum.GetValues<HazardType>().Sum(h => _scoring.For(h).CompositeWeight);
         double Weight(HazardType h) => Math.Round(_scoring.For(h).CompositeWeight / totalWeight, 3);
         string F(double v) => v.ToString("0.##", CultureInfo.InvariantCulture);
 
-        HazardModelResponse[] hazards =
+        HazardModelDescription[] hazards =
         [
             new(HazardType.Winter, Weight(HazardType.Winter), _scoring.Winter.ObservedWeight,
                 $"{F(_scoring.Winter.SnowShare * 100)}% snow days (snowfall ≥ {F(_thresholds.SnowDayCm)} cm; {F(_scoring.Winter.SnowDaysPerYearCap)}/yr = 100) + " +
@@ -55,7 +55,7 @@ public sealed class RiskModelDescriber
                 "FEMA NRI Heat Wave frequency percentile"),
         ];
 
-        return new RiskModelResponse(
+        return new RiskModelDescription(
             "Deterministic, rule-based index (not machine learning). Each hazard score (0–100) blends observed " +
             "disruption days at the hub (Open-Meteo, last full years) with the county's long-term FEMA hazard " +
             "frequency percentile. Hazards FEMA rates not applicable score 0. Composite = " +
@@ -84,3 +84,39 @@ public sealed class RiskModelDescriber
             ]);
     }
 }
+
+/// <summary>The deterministic risk model as currently configured.</summary>
+/// <param name="Summary">One-paragraph description of how scores are computed.</param>
+/// <param name="WindowFrom">First day of the observed-weather window.</param>
+/// <param name="WindowTo">Last day of the observed-weather window.</param>
+/// <param name="WorstHazardBlend">Share of the composite taken from the worst hazard.</param>
+/// <param name="MinimumCoverage">Weather coverage required for full confidence (0–1).</param>
+/// <param name="Hazards">Per-hazard signals and weights.</param>
+/// <param name="RatingBands">Score bands.</param>
+/// <param name="DataSources">External data sources.</param>
+/// <param name="Assumptions">Key assumptions and limitations.</param>
+public sealed record RiskModelDescription(
+    string Summary,
+    DateOnly WindowFrom,
+    DateOnly WindowTo,
+    double WorstHazardBlend,
+    double MinimumCoverage,
+    IReadOnlyList<HazardModelDescription> Hazards,
+    IReadOnlyList<RatingBand> RatingBands,
+    IReadOnlyList<string> DataSources,
+    IReadOnlyList<string> Assumptions);
+
+/// <summary>How one hazard is scored.</summary>
+/// <param name="Hazard">Hazard.</param>
+/// <param name="CompositeWeight">Normalized weight in the weighted average.</param>
+/// <param name="ObservedWeight">Share of the hazard score from observed weather.</param>
+/// <param name="ObservedSignal">Observed disruption-day definition and cap.</param>
+/// <param name="BaselineSignal">FEMA NRI components averaged into the baseline.</param>
+public sealed record HazardModelDescription(
+    HazardType Hazard, double CompositeWeight, double ObservedWeight, string ObservedSignal, string BaselineSignal);
+
+/// <summary>A rating band.</summary>
+/// <param name="Rating">Rating.</param>
+/// <param name="FromInclusive">Lower bound (inclusive).</param>
+/// <param name="ToExclusive">Upper bound (exclusive); null for the top band.</param>
+public sealed record RatingBand(RiskRating Rating, double FromInclusive, double? ToExclusive);

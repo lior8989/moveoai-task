@@ -1,7 +1,6 @@
 using Microsoft.AspNetCore.Http.HttpResults;
 using WeatherRisk.Api.Contracts;
 using WeatherRisk.Api.Contracts.Risk;
-using WeatherRisk.Api.Risk;
 using WeatherRisk.Core.Application;
 using WeatherRisk.Core.Domain;
 using WeatherRisk.Core.Ranking;
@@ -78,5 +77,5 @@ public static class RiskEndpoints
     /// <param name="service">Application service (for the current data window).</param>
     /// <returns>200 with the model description.</returns>
     internal static Ok<RiskModelResponse> DescribeModel(RiskModelDescriber describer, HubRiskService service) =>
-        TypedResults.Ok(describer.Describe(service.Window));
+        TypedResults.Ok(describer.Describe(service.Window).ToResponse());
 }

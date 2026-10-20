@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using WeatherRisk.Api.Agent;
 using WeatherRisk.Api.Background;
 using WeatherRisk.Api.Endpoints;
 using WeatherRisk.Api.Errors;
@@ -30,9 +31,11 @@ builder.Services.AddWeatherRiskDataSources(
     builder.Configuration.GetSection(HubDataSettings.SectionName),
     (dependency, client) => client.AddDependencyMetrics(dependency));
 builder.Services.AddRiskModel(builder.Configuration);
+IReadOnlyList<string> llmDependencies = builder.Services.AddChatAgent(builder.Configuration);
 builder.Services.AddHealthChecks()
     .AddDbContextCheck<WeatherRiskDbContext>("database")
-    .AddDependencyChecks(DependencyNames.DataSources);
+    .AddDependencyChecks(DependencyNames.DataSources)
+    .AddDependencyChecks(llmDependencies);
 builder.Services.AddHostedService<DataWarmupService>();
 
 var app = builder.Build();
@@ -66,6 +69,7 @@ app.UseRateLimiter();
 app.MapSystemEndpoints();
 app.MapHubEndpoints();
 app.MapRiskEndpoints();
+app.MapChatEndpoints();
 
 // Until the chat UI lands (task 8), the root opens Swagger.
 app.MapGet("/", () => Results.Redirect("/swagger")).ExcludeFromDescription();

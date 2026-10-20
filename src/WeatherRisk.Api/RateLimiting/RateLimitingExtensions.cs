@@ -8,6 +8,9 @@ namespace WeatherRisk.Api.RateLimiting;
 /// <summary>Registers the API rate limiter (built-in ASP.NET Core middleware) from configuration.</summary>
 public static class RateLimitingExtensions
 {
+    /// <summary>Named policy for <c>/api/chat</c>: stricter, since each question costs several LLM calls.</summary>
+    public const string ChatPolicy = "chat";
+
     // Operational endpoints stay reachable under load — that is exactly when metrics/health are needed.
     private static readonly PathString ApiPrefix = "/api";
     private static readonly PathString ExemptPrefix = "/api/system";
@@ -36,6 +39,10 @@ public static class RateLimitingExtensions
                 options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
                 options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(
                     context => CreatePartition(context, global));
+
+                // Applies in addition to the global limiter on endpoints that opt in with RequireRateLimiting.
+                SlidingWindowSettings chat = settings.Value.Chat;
+                options.AddPolicy(ChatPolicy, context => SlidingWindowPartition(ClientKey(context), chat));
                 options.OnRejected = (context, cancellationToken) =>
                     WriteRejectionAsync(context, global.SegmentDuration, cancellationToken);
             });
@@ -52,16 +59,20 @@ public static class RateLimitingExtensions
             return RateLimitPartition.GetNoLimiter("unlimited");
         }
 
-        // Assumption: clients connect directly. Behind a proxy, enable forwarded headers first.
-        string clientKey = context.Connection.RemoteIpAddress?.ToString() ?? "unknown";
-        return RateLimitPartition.GetSlidingWindowLimiter(clientKey, _ => new SlidingWindowRateLimiterOptions
+        return SlidingWindowPartition(ClientKey(context), settings);
+    }
+
+    /// <summary>Client identity for partitioning. Assumption: clients connect directly (behind a proxy, enable forwarded headers first).</summary>
+    private static string ClientKey(HttpContext context) => context.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+
+    private static RateLimitPartition<string> SlidingWindowPartition(string clientKey, SlidingWindowSettings settings) =>
+        RateLimitPartition.GetSlidingWindowLimiter(clientKey, _ => new SlidingWindowRateLimiterOptions
         {
             PermitLimit = settings.PermitLimit,
             Window = TimeSpan.FromSeconds(settings.WindowSeconds),
             SegmentsPerWindow = settings.SegmentsPerWindow,
             QueueLimit = 0, // Reject immediately rather than holding connections open.
         });
-    }
 
     /// <summary>Writes the 429 response: <c>Retry-After</c> header + <see cref="Microsoft.AspNetCore.Mvc.ProblemDetails"/> body.</summary>
     private static async ValueTask WriteRejectionAsync(

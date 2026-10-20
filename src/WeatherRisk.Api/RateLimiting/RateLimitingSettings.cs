@@ -11,6 +11,10 @@ public sealed class RateLimitingSettings
     /// <summary>Per-client limit applied to all <c>/api</c> endpoints except <c>/api/system/*</c>.</summary>
     [Required]
     public SlidingWindowSettings Global { get; init; } = new();
+
+    /// <summary>Per-client limit for <c>/api/chat</c> (default 10 per minute) — each question triggers several LLM calls.</summary>
+    [Required]
+    public SlidingWindowSettings Chat { get; init; } = new() { PermitLimit = 10, WindowSeconds = 60, SegmentsPerWindow = 6 };
 }
 
 /// <summary>Parameters of a sliding-window limiter: at most <see cref="PermitLimit"/> requests per window.</summary>

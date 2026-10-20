@@ -1,4 +1,4 @@
-using WeatherRisk.Core.Abstractions;
+﻿using WeatherRisk.Core.Abstractions;
 using WeatherRisk.Core.Application;
 using WeatherRisk.Core.Domain;
 using WeatherRisk.Core.Ranking;
@@ -9,31 +9,14 @@ namespace WeatherRisk.Core.Tests.Application;
 
 public sealed class HubRiskServiceTests
 {
-    private static readonly DataWindow Window = new(new DateOnly(2021, 1, 1), new DateOnly(2025, 12, 31));
-    private static readonly DateTimeOffset Retrieved = new(2026, 10, 1, 0, 0, 0, TimeSpan.Zero);
+    private static readonly DataWindow Window = FakeHubDataProvider.FixedWindow;
+    private static readonly DateTimeOffset Retrieved = FakeHubDataProvider.Retrieved;
 
-    private static readonly Hub Minneapolis = TestData.Hub("minneapolis", Region.Midwest);
-    private static readonly Hub Chicago = TestData.Hub("chicago", Region.Midwest);
-    private static readonly Hub Miami = TestData.Hub("miami", Region.South);
-
-    private readonly FakeProvider _provider = new();
+    // Snow every 5th day in Minneapolis, every 10th in Chicago, never in Miami.
+    private readonly FakeHubDataProvider _provider = ServiceFactory.DefaultProvider();
     private readonly HubRiskService _service;
 
-    public HubRiskServiceTests()
-    {
-        var settings = new ScoringSettings();
-        var thresholds = new WeatherThresholds();
-        _service = new HubRiskService(
-            new FakeHubs(Minneapolis, Chicago, Miami),
-            _provider,
-            new WeatherStatisticsCalculator(thresholds),
-            new RiskScoringEngine(HazardScorers.CreateDefault(settings, thresholds), settings),
-            thresholds);
-
-        // Snow every 5th day in Minneapolis, every 10th in Chicago, never in Miami.
-        _provider.SnowEvery["minneapolis"] = 5;
-        _provider.SnowEvery["chicago"] = 10;
-    }
+    public HubRiskServiceTests() => _service = ServiceFactory.Create(_provider);
 
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
@@ -49,7 +32,7 @@ public sealed class HubRiskServiceTests
         Assert.Empty(a.Score.Notes);
         Assert.Equal(new HubDataProvenance(Window, DataFreshness.Fresh, Retrieved, DataFreshness.Cached, Retrieved), a.Provenance);
 
-        // 1826 days, every 5th a snow day → 366 days / 5 years ≈ 73.2/yr → capped evidence present.
+        // 1826 days, every 5th a snow day â†’ 366 days / 5 years â‰ˆ 73.2/yr â†’ capped evidence present.
         Assert.Contains(a.Score.For(HazardType.Winter).Detail.Factors, f => f.Name == "snowDaysPerYear" && f.Value > 70);
     }
 
@@ -173,59 +156,5 @@ public sealed class HubRiskServiceTests
     {
         await Assert.ThrowsAsync<RequestValidationException>(() =>
             _service.GetWeatherStatisticsAsync("minneapolis", new DateOnly(2024, 2, 1), new DateOnly(2024, 1, 1), Ct));
-    }
-
-    // ---------- Fakes ----------
-
-    private sealed class FakeHubs(params Hub[] hubs) : IHubRepository
-    {
-        public Task<IReadOnlyList<Hub>> GetAllAsync(CancellationToken cancellationToken = default) =>
-            Task.FromResult<IReadOnlyList<Hub>>(hubs.OrderBy(h => h.Name).ToList());
-
-        public Task<Hub?> GetByIdAsync(string id, CancellationToken cancellationToken = default) =>
-            Task.FromResult(hubs.FirstOrDefault(h => h.Id == Hub.NormalizeId(id)));
-    }
-
-    private sealed class FakeProvider : IHubDataProvider
-    {
-        public Dictionary<string, int> SnowEvery { get; } = [];
-        public DataFreshness WeatherFreshness { get; set; } = DataFreshness.Fresh;
-        public DataFreshness BaselineFreshness { get; set; } = DataFreshness.Cached;
-        public IReadOnlyList<string> LastWeatherRequest { get; private set; } = [];
-
-        public DataWindow Window => HubRiskServiceTests.Window;
-
-        public Task<IReadOnlyDictionary<string, HubWeatherData>> GetWeatherAsync(
-            IReadOnlyCollection<Hub> hubs, CancellationToken cancellationToken = default)
-        {
-            LastWeatherRequest = hubs.Select(h => h.Id).ToList();
-            IReadOnlyDictionary<string, HubWeatherData> result = hubs.ToDictionary(h => h.Id, h =>
-            {
-                if (WeatherFreshness == DataFreshness.Unavailable)
-                {
-                    return new HubWeatherData(h.Id, Window, [], DataFreshness.Unavailable, null);
-                }
-
-                int every = SnowEvery.GetValueOrDefault(h.Id);
-                int days = Window.To.DayNumber - Window.From.DayNumber + 1;
-                var rows = Enumerable.Range(0, days)
-                    .Select(i => Window.From.AddDays(i))
-                    .Select(d => new DailyWeather(d, every > 0 && d.DayOfYear % every == 0 ? 3 : 0, 1, 20, 15, 2))
-                    .ToList();
-                return new HubWeatherData(h.Id, Window, rows, WeatherFreshness, Retrieved);
-            });
-            return Task.FromResult(result);
-        }
-
-        public Task<IReadOnlyDictionary<string, HubBaselineData>> GetBaselinesAsync(
-            IReadOnlyCollection<Hub> hubs, CancellationToken cancellationToken = default)
-        {
-            IReadOnlyDictionary<string, HubBaselineData> result = hubs
-                .Select(h => h.CountyFips)
-                .Distinct()
-                .ToDictionary(f => f, f => new HubBaselineData(
-                    f, new HazardBaseline(50, 50, 50, 50, 50, null, 50, 50, 50, 50), BaselineFreshness, Retrieved));
-            return Task.FromResult(result);
-        }
     }
 }
