@@ -6,8 +6,8 @@ Each task is developed on its own branch, reviewed by the owner, merged to `main
 
 | # | Status | Branch | Scope | Tests |
 |---|---|---|---|---|
-| 1 | 🟡 | `chore/claude-skills-and-docs` | Claude skills (documentation, swagger, SOLID & patterns, performance, testing, observability & resilience), `CLAUDE.md`, skeletons of `docs/ARCHITECTURE.md`, `docs/PLAN.md`, `README.md` | — |
-| 2 | ⬜ | `chore/solution-skeleton` | Solution + projects (Api, Core, Data, Eval) and test projects; `Directory.Build.props`; Swagger; health endpoint; **request metrics middleware + `/api/system/metrics`; rate limiting** | Smoke + endpoint tests (health, metrics, 429) |
+| 1 | ✅ | `chore/claude-skills-and-docs` | Claude skills (documentation, swagger, SOLID & patterns, performance, testing, observability & resilience), `CLAUDE.md`, skeletons of `docs/ARCHITECTURE.md`, `docs/PLAN.md`, `README.md` | — |
+| 2 | 🟡 | `chore/solution-skeleton` | Solution + projects (Api, Core, Data) and Api test project — Eval project and Core/Data test projects are created with their first code (tasks 3, 4, 9); `Directory.Build.props`; Swagger; health endpoint; **request metrics middleware + `/api/system/metrics`; rate limiting** | Smoke + endpoint tests (health, metrics, 429) |
 | 3 | ⬜ | `feature/domain-scoring` | Core domain: Hub, hazard metrics, per-hazard scoring strategies (winter, hurricane/wind, flood, heat), weighted composite 0–100, ranking & comparison. Pure logic | Unit (golden values) |
 | 4 | ⬜ | `feature/persistence` | EF Core + SQLite, repositories, seed of 15 hubs, score history, API cache; schema endpoint + ER diagram | Repository tests (SQLite in-memory) |
 | 5 | ⬜ | `feature/weather-data-sources` | Open-Meteo + FEMA NRI clients, cache decorator, metric computation; **HTTP resilience (retry/timeout/circuit breaker), live → cache fallback, dependency metrics** | Unit (stubbed HTTP), failure paths |

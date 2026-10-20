@@ -37,7 +37,27 @@ evaluation set, monitoring, and (bonus) risk-change alerts.
 *Component details: TBD (tasks 2–10).*
 
 ## 3. Repository structure
-*TBD (task 2).*
+```
+WeatherRisk.slnx                 Solution (new XML format, opens in Visual Studio 2026)
+Directory.Build.props            Shared settings: net10.0, nullable, XML docs (missing docs = build error)
+Directory.Packages.props         Central NuGet versions
+global.json                      SDK pin + Microsoft Testing Platform runner
+src/
+  WeatherRisk.Api/               Composition root (ASP.NET Core Minimal API)
+    Program.cs                   DI registration + middleware pipeline
+    Endpoints/                   Endpoint groups (one static class per resource)
+    Contracts/                   Request/response records (never EF entities)
+    Observability/               Request metrics middleware + collector, health checks
+    RateLimiting/                Rate-limiter configuration
+  WeatherRisk.Core/              Domain + scoring logic (no infrastructure dependencies)
+  WeatherRisk.Data/              EF Core/SQLite persistence + external API clients
+tests/
+  WeatherRisk.Api.Tests/         Endpoint tests (WebApplicationFactory) + Api unit tests
+  (WeatherRisk.Core.Tests, WeatherRisk.Data.Tests are added with their first code in tasks 3–4)
+docs/                            Architecture, plan, session transcript
+.claude/skills/                  Engineering standards the AI agent must follow
+```
+**Dependency rule:** `Api → Core ← Data` (Api also references Data for DI wiring). Core references nothing.
 
 ## 4. Data storage
 **Choice: SQLite (single file, EF Core).**
@@ -63,7 +83,41 @@ evaluation set, monitoring, and (bonus) risk-change alerts.
 *TBD (task 7).*
 
 ## 8. Monitoring, rate limiting & resilience
-*TBD (tasks 2, 5, 7).*
+
+### Request pipeline (order matters)
+```
+ExceptionHandler → StatusCodePages (ProblemDetails) → Swagger → Routing → RequestMetrics → RateLimiter → Endpoint
+```
+Metrics run after routing (so requests are labelled by route template, e.g. `GET /api/hubs/{id}`, keeping
+the number of keys bounded) and before the rate limiter (so 429 rejections are counted).
+
+### Request metrics — `GET /api/system/metrics`
+| Field | Meaning |
+|---|---|
+| `total`, `succeeded`, `clientErrors`, `serverErrors`, `rateLimited` | Outcome counters since startup (429 counted separately from other 4xx — it signals load, not a client bug) |
+| `requestsInWindow` | Requests in the last `windowSeconds` (default 60) — load indicator |
+| `avgLatencyMs`, `p95LatencyMs`, `maxLatencyMs` | Over the last 512 requests per endpoint — bottleneck indicator |
+
+Provided per endpoint and overall (`ALL`). Unknown `/api` routes are grouped as `(unmatched)`.
+- **Implementation:** `RequestMetricsMiddleware` → `RequestMetricsCollector` (singleton) → per-endpoint
+  `EndpointStats` = `SlidingWindowCounter` (60 one-second buckets) + `LatencyWindow` (ring buffer).
+- **Cost:** fixed memory per endpoint, one short uncontended lock per request, no allocations on record;
+  sorting for p95 happens only when metrics are read.
+- In-memory by design (resets on restart). ASP.NET Core's built-in `http.server.*` meters also work with
+  `dotnet-counters` for deeper inspection.
+
+### Health — `GET /api/system/health`
+ASP.NET Core health checks; 200 for Healthy/Degraded, 503 for Unhealthy. Dependency checks are added by
+the features that own them (task 5: data sources, task 7: LLM).
+
+### Rate limiting
+Built-in ASP.NET Core rate limiter, **sliding window per client IP** (default 120 requests / 60 s,
+6 segments) on all `/api` routes **except `/api/system/*`** — health and metrics must stay reachable under
+load, which is exactly when they're needed. Rejections: `429` + `Retry-After` + ProblemDetails. Settings in
+`appsettings.json` → `RateLimiting`, validated at startup. *(Task 7 adds a stricter policy for `/api/chat`.)*
+
+### Resilience & fallbacks
+*TBD (task 5: HTTP retry/timeout/circuit breaker + cache fallback; task 7: LLM provider fallback).*
 
 ## 9. Evaluation
 *TBD (task 9).*
@@ -77,6 +131,13 @@ evaluation set, monitoring, and (bonus) risk-change alerts.
 | One OpenAI-compatible LLM adapter | Groq, Gemini and Ollama all expose it → provider switch is configuration only. |
 | Static HTML/JS chat UI | Lightweight, served by the API, browser Web Speech API gives voice for free. |
 | SQLite | See §4. |
+| Minimal APIs grouped in static endpoint classes | Less ceremony than controllers; each group is one file; handlers are plain methods (unit-testable, XML docs flow into OpenAPI). |
+| Built-in OpenAPI (`Microsoft.AspNetCore.OpenApi`) + Swagger UI | .NET 10's native document generator; Swashbuckle only for the UI. Swagger enabled in all environments so reviewers can test live. |
+| In-process metrics instead of Prometheus/Grafana | Zero infrastructure; enough to spot load spikes, failures and slow endpoints. |
+| `TimeProvider` injected | Time-dependent code (metric windows, later caching/alerts) is deterministic in tests. |
+| Rate limit partitioned by client IP | Simple and fair for a demo; assumes no reverse proxy (would need forwarded headers). |
 
 ## 11. Assumptions & uncertainty
-*TBD — collected throughout tasks, finalized in task 11.*
+*Collected throughout tasks, finalized in task 11.*
+- Monitoring data is in-memory and per-process; it resets on restart and isn't shared across instances.
+- Rate-limit client identity = remote IP address (no auth, no proxy).

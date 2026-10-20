@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Infrastructure: persistence (EF Core + SQLite) and external API clients. Implements Core abstractions. -->
+
+  <ItemGroup>
+    <ProjectReference Include="..\WeatherRisk.Core\WeatherRisk.Core.csproj" />
+  </ItemGroup>
+
+</Project>

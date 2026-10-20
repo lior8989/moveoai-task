@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <!-- Composition root: HTTP endpoints, middleware, DI wiring, static chat UI. -->
+
+  <ItemGroup>
+    <ProjectReference Include="..\WeatherRisk.Core\WeatherRisk.Core.csproj" />
+    <ProjectReference Include="..\WeatherRisk.Data\WeatherRisk.Data.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Lets unit tests reach internal monitoring building blocks (ring buffers, counters). -->
+    <InternalsVisibleTo Include="WeatherRisk.Api.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.OpenApi" />
+    <PackageReference Include="Swashbuckle.AspNetCore.SwaggerUI" />
+  </ItemGroup>
+
+</Project>
